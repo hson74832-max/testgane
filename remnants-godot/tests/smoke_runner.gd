@@ -82,6 +82,25 @@ func _stage_adjacent(sim, p, tiles: Array, wild_only: bool = true, need_dest: bo
 	print("[SMOKE] dbg stage FAILED player=%s" % [str(p.get("grid"))])
 	return null
 
+## Test-only leg: nudge any live body off a tile. The gate-trip teleports
+## below land on fixed wild tiles (rift pads) where roaming monsters may
+## stand — real gate travel slides the traveler aside (_try_gate), and these
+## staged hops must uphold the same one-soul-per-tile invariant.
+func _clear_tile(main: Node, tile: Vector3i) -> void:
+	var sim = main.get("sim")
+	var m = sim.monster_at(tile.x, tile.y, tile.z)
+	if m == null:
+		return
+	var tiles: Array = (sim.get("floor_maps") as Dictionary).get(tile.z, [])
+	for r in range(1, 7):
+		for dy in range(-r, r + 1):
+			for dx in range(-r, r + 1):
+				var c := Vector3i(tile.x + dx, tile.y + dy, tile.z)
+				if WorldGen.is_walkable(tiles, c.x, c.y) and sim.monster_at(c.x, c.y, c.z) == null:
+					m.set("grid", c)
+					m.set("render", Vector2(c.x, c.y))
+					return
+
 func _physics_process(_delta: float) -> void:
 	frame += 1
 	if main == null:
@@ -575,7 +594,11 @@ func _physics_process(_delta: float) -> void:
 		_check(int(p19.get("max_hp")) == int(floor(float(100 + 20 * lvl) * 1.25)), "warrior HP +25%% (%d)" % int(p19.get("max_hp")))
 		_check(sim18.tick_range() == 1, "warrior tick is melee")
 	if frame == 680:
-		# rift gate: stepping on the crossroad rift must change floors
+		# rift gate: stepping on the crossroad rift must change floors.
+		# Clear the pads first: roaming bodies on a gate tile would make the
+		# staged teleport violate one-soul-per-tile (sim travel slides aside).
+		_clear_tile(main, Vector3i(18, 16, 0))
+		_clear_tile(main, Vector3i(6, 6, 1))
 		var p20 = main.get("player")
 		p20.set("grid", Vector3i(18, 16, 0))
 		p20.set("render", Vector2(18, 16))
@@ -586,9 +609,14 @@ func _physics_process(_delta: float) -> void:
 		_check(gp.z == 1, "rift carried us down (z=%d)" % gp.z)
 		_check(gp.z == 1 and maxi(absi(gp.x - 6), absi(gp.y - 6)) <= 3, "rift lands at the crypt heart (%s)" % str(gp))
 		sim19.set("gate_cd_until", 0)
+		# monsters roam the small crypt: clear both the staging tile and the
+		# return pad before the hop back
+		_clear_tile(main, Vector3i(6, 7, 1))
+		_clear_tile(main, Vector3i(6, 6, 1))
 		p21.set("grid", Vector3i(6, 7, 1))
 		p21.set("render", Vector2(6, 7))
 	if frame == 695:
+		_clear_tile(main, Vector3i(6, 6, 1))
 		var p22 = main.get("player")
 		p22.set("grid", Vector3i(6, 6, 1))
 		p22.set("render", Vector2(6, 6))
@@ -806,6 +834,8 @@ func _physics_process(_delta: float) -> void:
 						continue
 					if WorldGen.kind_at(tiles13, xx, yy) == "gate":
 						continue
+					if main.get("sim").monster_at(xx, yy, 0) != null:
+						continue  # never blink onto a body: the overlap guard is exact
 					if maxi(absi(xx - 19), absi(yy - 34)) > 10:
 						far_spot = Vector3i(xx, yy, 0)
 						break

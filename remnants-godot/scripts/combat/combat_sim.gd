@@ -19,6 +19,7 @@ signal player_died(killed_by: String, xp_lost: int, gold_dropped: int)
 signal toast(text: String, kind: String)
 signal looted(item_key: String, qty: int)
 signal mob_killed(monster_name: String)
+signal vocation_changed(key: String)
 
 const MonsterScript := preload("res://scripts/combat/monster.gd")
 const Vocations := preload("res://scripts/combat/vocations.gd")
@@ -127,6 +128,7 @@ func set_vocation(key: String) -> bool:
 		return key == vocation
 	vocation = key
 	combat.apply_vocation_stats(true)
+	vocation_changed.emit(key)
 	var def: Dictionary = Vocations.def(key)
 	toast.emit("Path of the %s — %s" % [String(def["name"]), String(def["blurb"])], "good")
 	add_float(String(def["name"]).to_upper(), _v(player.grid) + Vector2(0, -0.6), Color(1.0, 0.82, 0.4), true)

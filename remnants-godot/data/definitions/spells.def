@@ -1,0 +1,60 @@
+{
+	"abilities": [
+		{
+			"color": "#ffd166",
+			"cooldown": 850.0,
+			"damage": 14.0,
+			"description": "Manual melee swing on the targeted adjacent tile. Costs mana — the 2s tick is the free baseline, Strike is the burst.",
+			"designNote": "Strike used to be free and spammable, which made the 2-second tick pointless: optimal play was hammering one button. The 8-mana price restores the intended rhythm — free metronome damage plus deliberate, mana-gated bursts — and gives Blue Draughts a job in every fight, not just mage fights.",
+			"glyph": "⚔️",
+			"key": "strike",
+			"manaCost": 8.0,
+			"name": "Strike",
+			"range": 1.0,
+			"shape": "adjacent",
+			"windup": 260.0
+		},
+		{
+			"color": "#ef476f",
+			"cooldown": 4200.0,
+			"damage": 19.0,
+			"description": "Hits every enemy in the 8 tiles around you after a 0.42s wind-up.",
+			"designNote": "Your own wind-up is telegraphed to other players too. Committing to Cleave is a readable, punishable choice — symmetry with monster tells.",
+			"glyph": "🌀",
+			"key": "cleave",
+			"manaCost": 14.0,
+			"name": "Cleave",
+			"range": 1.0,
+			"shape": "radial",
+			"windup": 420.0
+		},
+		{
+			"color": "#4cc9f0",
+			"cooldown": 2600.0,
+			"damage": 26.0,
+			"description": "Straight-line projectile, 5 tiles, stops on the first target.",
+			"designNote": "The only reliable way to open on an Ember Husk before it zones you. Mana-gated so it can never become the default attack.",
+			"glyph": "✨",
+			"key": "bolt",
+			"manaCost": 20.0,
+			"name": "Ash Bolt",
+			"range": 5.0,
+			"shape": "line",
+			"windup": 340.0
+		},
+		{
+			"color": "#06d6a0",
+			"cooldown": 9000.0,
+			"damage": 0.0,
+			"description": "Absorbs the next 45 damage for 6 seconds. Consumes a full thumb-press.",
+			"designNote": "Defensive cooldowns are held, not spammed. Long CD + visible bubble = other players can count your Ward down out loud.",
+			"glyph": "🛡️",
+			"key": "ward",
+			"manaCost": 26.0,
+			"name": "Ward",
+			"range": 0.0,
+			"shape": "self",
+			"windup": 0.0
+		}
+	]
+}

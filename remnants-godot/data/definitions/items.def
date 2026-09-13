@@ -1,0 +1,363 @@
+{
+	"allItemKeys": [
+		"rat_pelt",
+		"chitin_plate",
+		"ember_core",
+		"grave_silk",
+		"salve",
+		"mana_draught",
+		"gold",
+		"bone_knife",
+		"ember_axe",
+		"hollow_blade",
+		"rusted_helm",
+		"chitin_helm",
+		"leather_vest",
+		"chitin_mail",
+		"ember_plate",
+		"wooden_buckler",
+		"barrow_shield",
+		"ash_greaves",
+		"travel_boots",
+		"silk_amulet",
+		"ember_ring",
+		"soul_token"
+	],
+	"defaultLootFilter": [
+		"chitin_plate",
+		"ember_core",
+		"grave_silk",
+		"salve",
+		"mana_draught",
+		"gold",
+		"bone_knife",
+		"ember_axe",
+		"hollow_blade",
+		"rusted_helm",
+		"chitin_helm",
+		"leather_vest",
+		"chitin_mail",
+		"ember_plate",
+		"wooden_buckler",
+		"barrow_shield",
+		"ash_greaves",
+		"travel_boots",
+		"silk_amulet",
+		"ember_ring",
+		"soul_token"
+	],
+	"equipSlots": [
+		{
+			"glyph": "🪖",
+			"key": "helmet",
+			"label": "Head"
+		},
+		{
+			"glyph": "📿",
+			"key": "amulet",
+			"label": "Neck"
+		},
+		{
+			"glyph": "🎽",
+			"key": "armor",
+			"label": "Chest"
+		},
+		{
+			"glyph": "🗡️",
+			"key": "weapon",
+			"label": "Weapon"
+		},
+		{
+			"glyph": "🛡️",
+			"key": "shield",
+			"label": "Off-hand"
+		},
+		{
+			"glyph": "👖",
+			"key": "legs",
+			"label": "Legs"
+		},
+		{
+			"glyph": "🥾",
+			"key": "boots",
+			"label": "Feet"
+		},
+		{
+			"glyph": "💍",
+			"key": "ring",
+			"label": "Ring"
+		}
+	],
+	"itemList": [
+		"rat_pelt",
+		"chitin_plate",
+		"ember_core",
+		"grave_silk",
+		"salve",
+		"mana_draught",
+		"gold",
+		"bone_knife",
+		"ember_axe",
+		"hollow_blade",
+		"rusted_helm",
+		"chitin_helm",
+		"leather_vest",
+		"chitin_mail",
+		"ember_plate",
+		"wooden_buckler",
+		"barrow_shield",
+		"ash_greaves",
+		"travel_boots",
+		"silk_amulet",
+		"ember_ring",
+		"soul_token"
+	],
+	"items": {
+		"ash_greaves": {
+			"armor": 3.0,
+			"basePrice": 130.0,
+			"blurb": "Emberfield standard issue. Leg armour is the cheapest armour-per-gold in the game.",
+			"glyph": "👖",
+			"heavy": 2.0,
+			"key": "ash_greaves",
+			"kind": "gear",
+			"name": "Ash Greaves",
+			"rarity": "uncommon",
+			"slot": "legs"
+		},
+		"barrow_shield": {
+			"armor": 5.0,
+			"basePrice": 420.0,
+			"blurb": "Pulled off the dead of the Grey Barrow. Still cold.",
+			"glyph": "🔰",
+			"heavy": 3.0,
+			"key": "barrow_shield",
+			"kind": "gear",
+			"name": "Barrow Shield",
+			"rarity": "rare",
+			"slot": "shield"
+		},
+		"bone_knife": {
+			"basePrice": 35.0,
+			"blurb": "Starter steel. Weightless, so your step cadence stays at a clean 205ms.",
+			"damage": 3.0,
+			"glyph": "🔪",
+			"heavy": 0.0,
+			"key": "bone_knife",
+			"kind": "gear",
+			"name": "Bone Knife",
+			"rarity": "common",
+			"slot": "weapon"
+		},
+		"chitin_helm": {
+			"armor": 3.0,
+			"basePrice": 140.0,
+			"blurb": "Crafted from six plates. The first meaningful spider-farming milestone.",
+			"glyph": "⛑️",
+			"heavy": 2.0,
+			"key": "chitin_helm",
+			"kind": "gear",
+			"name": "Chitin Helm",
+			"rarity": "uncommon",
+			"slot": "helmet"
+		},
+		"chitin_mail": {
+			"armor": 7.0,
+			"basePrice": 380.0,
+			"blurb": "Turns an Ember Husk from a 17-damage threat into a 10-damage nuisance.",
+			"glyph": "🦺",
+			"heavy": 4.0,
+			"key": "chitin_mail",
+			"kind": "gear",
+			"name": "Chitin Mail",
+			"rarity": "rare",
+			"slot": "armor"
+		},
+		"chitin_plate": {
+			"basePrice": 24.0,
+			"blurb": "Crafters buy these in stacks of twenty. Stacks of twenty are hard to carry home.",
+			"glyph": "🕷️",
+			"key": "chitin_plate",
+			"kind": "material",
+			"name": "Chitin Plate",
+			"rarity": "uncommon"
+		},
+		"ember_axe": {
+			"basePrice": 320.0,
+			"blurb": "Heavy enough that you feel it in your feet. The classic damage-versus-footwork trade.",
+			"damage": 7.0,
+			"glyph": "🪓",
+			"heavy": 3.0,
+			"key": "ember_axe",
+			"kind": "gear",
+			"name": "Ember Axe",
+			"rarity": "rare",
+			"slot": "weapon"
+		},
+		"ember_core": {
+			"basePrice": 90.0,
+			"blurb": "Still warm. Fuels the only known method of re-forging a broken ward.",
+			"glyph": "🔥",
+			"key": "ember_core",
+			"kind": "material",
+			"name": "Ember Core",
+			"rarity": "rare"
+		},
+		"ember_plate": {
+			"armor": 12.0,
+			"basePrice": 1100.0,
+			"blurb": "Best-in-slot mitigation, worst-in-slot mobility. +40ms per step is a real telegraph tax.",
+			"glyph": "🛡️",
+			"heavy": 8.0,
+			"key": "ember_plate",
+			"kind": "gear",
+			"name": "Ember Plate",
+			"rarity": "epic",
+			"slot": "armor"
+		},
+		"ember_ring": {
+			"armor": 1.0,
+			"basePrice": 180.0,
+			"blurb": "A warm band. One point of mitigation and a small social signal that you farm Emberfield.",
+			"glyph": "💍",
+			"heavy": 0.0,
+			"key": "ember_ring",
+			"kind": "gear",
+			"name": "Ember Ring",
+			"rarity": "uncommon",
+			"slot": "ring"
+		},
+		"gold": {
+			"basePrice": 1.0,
+			"blurb": "Carried gold is at risk. Banked gold is not. That is the whole risk system in one line.",
+			"glyph": "🪙",
+			"key": "gold",
+			"kind": "material",
+			"name": "Gold",
+			"rarity": "common"
+		},
+		"grave_silk": {
+			"basePrice": 120.0,
+			"blurb": "Harvested from wraiths. The single most volatile commodity on the board.",
+			"glyph": "🕸️",
+			"key": "grave_silk",
+			"kind": "material",
+			"name": "Grave Silk",
+			"rarity": "rare"
+		},
+		"hollow_blade": {
+			"basePrice": 850.0,
+			"blurb": "+9 damage, near weightless. Drops 1-in-400 from wraiths. A server event when it lands.",
+			"damage": 9.0,
+			"glyph": "🗡️",
+			"heavy": 1.0,
+			"key": "hollow_blade",
+			"kind": "gear",
+			"name": "Hollow Blade",
+			"rarity": "epic",
+			"slot": "weapon"
+		},
+		"leather_vest": {
+			"armor": 3.0,
+			"basePrice": 70.0,
+			"blurb": "The default chest piece. Cheap enough that losing it in the Barrow is survivable.",
+			"glyph": "🎽",
+			"heavy": 2.0,
+			"key": "leather_vest",
+			"kind": "gear",
+			"name": "Leather Vest",
+			"rarity": "common",
+			"slot": "armor"
+		},
+		"mana_draught": {
+			"basePrice": 22.0,
+			"blurb": "Restores 40 mana. Mana is the real currency of survival.",
+			"effect": {
+				"mana": 40.0
+			},
+			"glyph": "🫙",
+			"key": "mana_draught",
+			"kind": "consumable",
+			"name": "Blue Draught",
+			"rarity": "common"
+		},
+		"rat_pelt": {
+			"basePrice": 6.0,
+			"blurb": "Matted, cheap, endless. The copper standard of the Hollow economy.",
+			"glyph": "🐀",
+			"key": "rat_pelt",
+			"kind": "material",
+			"name": "Sewer Pelt",
+			"rarity": "common"
+		},
+		"rusted_helm": {
+			"armor": 1.0,
+			"basePrice": 40.0,
+			"blurb": "One flat point off every physical hit. Against a Hollow Rat that is 17% of its damage.",
+			"glyph": "🪖",
+			"heavy": 1.0,
+			"key": "rusted_helm",
+			"kind": "gear",
+			"name": "Rusted Helm",
+			"rarity": "common",
+			"slot": "helmet"
+		},
+		"salve": {
+			"basePrice": 18.0,
+			"blurb": "Restores 55 HP over a 3s channel. You cannot move while drinking. That is the point.",
+			"effect": {
+				"hp": 55.0
+			},
+			"glyph": "🧪",
+			"key": "salve",
+			"kind": "consumable",
+			"name": "Field Salve",
+			"rarity": "common"
+		},
+		"silk_amulet": {
+			"armor": 2.0,
+			"basePrice": 300.0,
+			"blurb": "Woven from wraith silk. Two flat points, zero weight — the arbitrage everyone wants.",
+			"glyph": "📿",
+			"heavy": 0.0,
+			"key": "silk_amulet",
+			"kind": "gear",
+			"name": "Grave Silk Amulet",
+			"rarity": "rare",
+			"slot": "amulet"
+		},
+		"soul_token": {
+			"basePrice": 400.0,
+			"blurb": "Consumed on death to protect your XP. The whole economy prices itself against this.",
+			"glyph": "💠",
+			"key": "soul_token",
+			"kind": "relic",
+			"name": "Soul Token",
+			"rarity": "epic"
+		},
+		"travel_boots": {
+			"armor": 1.0,
+			"basePrice": 55.0,
+			"blurb": "Weightless. Every serious Barrow runner wears these and nothing heavier below the waist.",
+			"glyph": "🥾",
+			"heavy": 0.0,
+			"key": "travel_boots",
+			"kind": "gear",
+			"name": "Travel Boots",
+			"rarity": "common",
+			"slot": "boots"
+		},
+		"wooden_buckler": {
+			"armor": 2.0,
+			"basePrice": 45.0,
+			"blurb": "Off-hand mitigation with almost no encumbrance cost.",
+			"glyph": "🪵",
+			"heavy": 1.0,
+			"key": "wooden_buckler",
+			"kind": "gear",
+			"name": "Wooden Buckler",
+			"rarity": "common",
+			"slot": "shield"
+		}
+	}
+}

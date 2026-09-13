@@ -5,25 +5,62 @@ extends Node2D
 ## Render pos lerps toward grid pos; camera follows render pos.
 
 signal stepped(grid: Vector3i, region_name: String)
+# --- vitals observers (StatusBar + HUD listen; setters emit on every write,
+# including the sim's dynamic player.set(...) calls) ---
+signal player_hp_changed(hp: int, max_hp: int)
+signal player_mana_changed(mana: int, max_mana: int)
+signal player_xp_changed(xp: int, level: int)
+signal player_gold_changed(gold: int)
+signal player_gear_changed(armor: int, heavy: int, weapon_damage: int)
 
 ## Tibia-style position triple: x, y on the floor, z is the floor itself.
 var grid: Vector3i = Vector3i(20, 35, 0)
 var render: Vector2 = Vector2(20, 35)
 var facing: Vector2i = Vector2i(0, 1)
-var heavy: int = 2
+var heavy: int = 2:
+	set(v):
+		heavy = v
+		player_gear_changed.emit(armor, heavy, weapon_damage)
 var slowed: bool = false
-var hp: int = 120
-var max_hp: int = 120
-var mana: int = 60
-var max_mana: int = 60
-var level: int = 1
+var hp: int = 120:
+	set(v):
+		hp = v
+		player_hp_changed.emit(hp, max_hp)
+var max_hp: int = 120:
+	set(v):
+		max_hp = v
+		player_hp_changed.emit(hp, max_hp)
+var mana: int = 60:
+	set(v):
+		mana = v
+		player_mana_changed.emit(mana, max_mana)
+var max_mana: int = 60:
+	set(v):
+		max_mana = v
+		player_mana_changed.emit(mana, max_mana)
+var level: int = 1:
+	set(v):
+		level = v
+		player_xp_changed.emit(xp, level)
 # --- Phase 2 combat state (mirrors engine.ts PlayerState, trimmed) ---
-var xp: int = 0
-var gold: int = 50
+var xp: int = 0:
+	set(v):
+		xp = v
+		player_xp_changed.emit(xp, level)
+var gold: int = 50:
+	set(v):
+		gold = v
+		player_gold_changed.emit(gold)
 var kills: int = 0
 var deaths: int = 0
-var armor: int = 3
-var weapon_damage: int = 3
+var armor: int = 3:
+	set(v):
+		armor = v
+		player_gear_changed.emit(armor, heavy, weapon_damage)
+var weapon_damage: int = 3:
+	set(v):
+		weapon_damage = v
+		player_gear_changed.emit(armor, heavy, weapon_damage)
 var ward_hp: int = 0
 var statuses: Array = []
 var cooldowns: Dictionary = {}

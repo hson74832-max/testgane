@@ -5,3 +5,6 @@ res://scripts/autoloads/game_balance.gd
 res://scripts/autoloads/world_gen.gd
 res://scripts/ui/hud.gd
 res://scripts/world/world_view.gd
+res://scripts/player/player_grid.gd
+res://scripts/ui/sheets/bag_sheet.gd
+res://scripts/ui/sheets/gear_sheet.gd

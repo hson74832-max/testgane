@@ -34,7 +34,9 @@ const TILE_DEFS: Dictionary = {
 	"gate": {"walkable": true, "projectile_blocked": false},
 }
 
-## Pull the world slice out of the parsed content.json root.
+## Pull the world slice out of the merged content root. DataLoader composes
+## balance/world.json (crypt + reference data) with maps/regions.json
+## (REGIONS spawn tables) into one world dict, so this stays a plain read.
 func load_content(parsed: Dictionary) -> void:
 	WORLD = parsed.get("world", {})
 	NPCS = parsed.get("npcs", [])

@@ -1,13 +1,17 @@
 extends PanelContainer
 ## Satchel sheet: session inventory. Tap a consumable to drink it (roots
-## 1.2s), tap gear to equip it, materials point at the web market.
+## 1.2s), tap gear to equip it, materials point at the web market. The grid,
+## tooltips and interactions live in InventoryUI — this shell keeps the
+## sheet chrome and the gold line.
 
 const UiKit := preload("res://scripts/ui/ui_kit.gd")
+const InventoryUIScript := preload("res://scripts/ui/inventory_ui.gd")
 
 var world = null
 var player = null
 var sim = null
 var S := 1.0
+var inv: InventoryUIScript
 var _gold: Label
 var _grid: GridContainer
 
@@ -17,6 +21,9 @@ func setup(w, p, s, scale: float) -> void:
 	sim = s
 	S = scale
 	UiKit.apply_sheet_geometry(self, S)
+	inv = InventoryUIScript.new()
+	inv.setup(world, sim)
+	inv.changed.connect(refresh)
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", 8)
 	add_child(vb)
@@ -32,36 +39,5 @@ func setup(w, p, s, scale: float) -> void:
 	vb.add_child(_grid)
 
 func refresh() -> void:
-	for c in _grid.get_children():
-		c.queue_free()
 	_gold.text = "Carried gold: %dg — at risk until banked" % int(player.get("gold"))
-	var satchel: Dictionary = sim.get("local_inventory")
-	if satchel.is_empty():
-		_grid.add_child(UiKit.label("Empty. Kill something.", 14, S, Color(0.55, 0.58, 0.62)))
-		return
-	for key in satchel.keys():
-		var k := String(key)
-		var b := Button.new()
-		b.custom_minimum_size = Vector2(0, 62.0 * S)
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.add_theme_font_size_override("font_size", UiKit.fs(13, S))
-		if sim.is_consumable(k):
-			b.text = "%s x%d\nUSE" % [String(GameBalance.item_def(k).get("name", k)), int(satchel[k])]
-		elif sim.is_equippable(k):
-			b.text = "%s x%d\nEQUIP" % [String(GameBalance.item_def(k).get("name", k)), int(satchel[k])]
-		else:
-			b.text = "%s x%d" % [String(GameBalance.item_def(k).get("name", k)), int(satchel[k])]
-		b.pressed.connect(_on_item_pressed.bind(k))
-		_grid.add_child(b)
-
-func _on_item_pressed(item_key: String) -> void:
-	if sim.is_consumable(item_key):
-		if sim.use_consumable(item_key):
-			world.buzz(20)
-	elif sim.is_equippable(item_key):
-		if sim.equip(item_key):
-			world.buzz(16)
-	else:
-		world.mark_input()
-		sim.toast.emit("Trade good — the market lives on web for now", "info")
-	refresh()
+	inv.fill_bag(_grid, S)

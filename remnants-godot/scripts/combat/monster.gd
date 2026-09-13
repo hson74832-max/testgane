@@ -1,7 +1,11 @@
 class_name Monster
 extends Node2D
-## Data + view for one creature. Logic lives in the combat systems
-## (scripts/combat/systems/): AISystem drives behavior, CombatSystem damage.
+## Data + view for one creature. This is a data container: it has NO
+## _process/_physics_process. Behavior is centralized in AISystem
+## (scripts/combat/systems/ai_system.gd — one loop over live, same-floor
+## monsters), the central tick drives sync_pos, and _draw only fires on a
+## dirty repaint (idle bodies stop redrawing entirely). State the systems
+## read (grid/hp/aggro/...) is shared, not per-instance logic.
 ## Mirrors engine.ts Monster fields (trimmed: no mob statuses in Phase 2).
 
 var mid: int = 0
@@ -31,6 +35,14 @@ var sense: int = 4
 var last_seen := Vector3i(-999, -999, -999)
 ## Set by AISystem each tick: marked, within 3 tiles, (or damaged below).
 var show_bar := false
+## Dirty-repaint ledger: what the last _draw painted. sync_pos compares and
+## only queue_redraw()s when something visible changed (motion, fade, flash,
+## wind-up swell, hp, bar visibility) — idle creatures cost one branch/frame.
+var _drawn_hp := -1
+var _drawn_bar := false
+var _drawn_flash := false
+var _drawn_winding := false
+var _drawn_dying := false
 
 func setup(p_mid: int, p_key: String, p_def: Dictionary, p_grid: Vector3i, p_hp: int, p_damage_by: Dictionary) -> void:
 	mid = p_mid
@@ -51,11 +63,34 @@ func is_alive() -> bool:
 func is_dying(now: int) -> bool:
 	return dying_at != 0 and now - dying_at < 320
 
+## View sync, driven by the central tick (CombatSim._physics_process). The
+## render position lerps toward the grid cell and snaps once converged, then
+## the body stops repainting until something visible changes again.
 func sync_pos(delta: float) -> void:
-	var k: float = minf(1.0, delta / 0.11)
-	render = render.lerp(Vector2(grid.x, grid.y), k)
-	position = render * float(WorldGen.TILE_PX)
-	queue_redraw()
+	var now: int = Time.get_ticks_msec()
+	var target := Vector2(grid.x, grid.y)
+	var moving := render.distance_squared_to(target) > 0.0001
+	if moving:
+		var k: float = minf(1.0, delta / 0.11)
+		render = render.lerp(target, k)
+		if render.distance_squared_to(target) <= 0.0001:
+			render = target  # snap: no sub-pixel drift, the lerp can stop
+		position = render * float(WorldGen.TILE_PX)
+	var flash_on: bool = now < hit_flash_until
+	var winding: bool = now < windup_until
+	var dirty := moving \
+		or (dying_at != 0 and now - dying_at < 320) \
+		or flash_on or winding \
+		or hp != _drawn_hp or show_bar != _drawn_bar \
+		or flash_on != _drawn_flash or winding != _drawn_winding \
+		or (dying_at != 0) != _drawn_dying
+	if dirty:
+		queue_redraw()
+		_drawn_hp = hp
+		_drawn_bar = show_bar
+		_drawn_flash = flash_on
+		_drawn_winding = winding
+		_drawn_dying = dying_at != 0
 
 func body_color() -> Color:
 	return Color.html(String(def.get("color", "#a98467")))

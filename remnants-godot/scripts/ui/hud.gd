@@ -1,7 +1,13 @@
 extends CanvasLayer
 ## Mobile-first HUD. Mirrors web GamePlay.tsx layout: vitals top-left,
-## target plate top-center, thumb stick bottom-left, action pads bottom-right,
-## toasts center, death card overlay. Top UI fades after 3.8s idle like web.
+## thumb stick bottom-left, action pads bottom-right, toasts center, death
+## card overlay. Top UI fades after 3.8s idle like web.
+##
+## Signal-driven where it can be: vitals bars (StatusBar observes
+## PlayerGrid's player_hp_changed / player_mana_changed / player_xp_changed),
+## the name line (gold + vocation_changed), and chat (ChatSystem's
+## chat_message_received). What stays in _process is time-driven UI —
+## cooldown sweeps, toast/idle decay, chat fade — which cannot be event-fed.
 
 const StickScript := preload("res://scripts/ui/virtual_joystick.gd")
 const MinimapScript := preload("res://scripts/ui/minimap.gd")
@@ -10,19 +16,20 @@ const GearSheet := preload("res://scripts/ui/sheets/gear_sheet.gd")
 const BagSheet := preload("res://scripts/ui/sheets/bag_sheet.gd")
 const SkillSheet := preload("res://scripts/ui/sheets/skill_sheet.gd")
 const NpcSheet := preload("res://scripts/ui/sheets/npc_sheet.gd")
+const ChatSystemScript := preload("res://scripts/ui/chat_system.gd")
+const StatusBarScript := preload("res://scripts/ui/status_bar.gd")
 const FADE_AFTER_MS := 3800
 const FADE_ALPHA := 0.32
 
 var world: Node = null
 var player: Node = null
 var sim: Node = null
+var chat: ChatSystemScript = null
+var status_bar: StatusBarScript = null
 
 var _vitals: PanelContainer
 var _level_badge: Label
 var _name_label: Label
-var _hp_bar: ProgressBar
-var _mp_bar: ProgressBar
-var _xp_bar: ProgressBar
 var _vitals_line: Label
 var _status_row: HBoxContainer
 var _status_sig := ""
@@ -46,7 +53,7 @@ var _skill_sheet: PanelContainer
 var _npc_sheet: PanelContainer
 var _chat_panel: PanelContainer
 var _chat_box: VBoxContainer
-var _chat_lines: Array = []
+var _chat_lines: Array = []  # rendered tail; the canonical log lives in ChatSystem
 var _chat_input: LineEdit
 var _chat_last := 0
 var _minimap: Control
@@ -65,8 +72,21 @@ func setup(w: Node, p: Node, s: Node) -> void:
 	if not _resize_hooked:
 		_resize_hooked = true
 		get_viewport().size_changed.connect(_on_resize)
+	# chat: this HUD renders lines; ChatSystem owns input/history/commands/net
+	chat = ChatSystemScript.new()
+	chat.setup(world)
+	chat.chat_message_received.connect(_on_chat_message)
+	chat.chat_submitted.connect(func(text: String) -> void: world.on_chat_submitted(text))
+	# vitals: observer over the player's stat signals
+	status_bar = StatusBarScript.new()
+	status_bar.observe(player)
+	# name line + level badge + vitals line update from signals
+	player.player_gold_changed.connect(func(_g: int) -> void: _refresh_name_line())
+	player.player_xp_changed.connect(func(_xp: int, lvl: int) -> void: _level_badge.text = str(lvl))
+	player.player_gear_changed.connect(func(_a: int, _h: int, _w: int) -> void: _refresh_vitals_line())
+	player.stepped.connect(func(_g: Vector3i, _rn: String) -> void: _refresh_vitals_line())
+	sim.vocation_changed.connect(func(_k: String) -> void: _refresh_name_line())
 	_build()
-	sim.leveled_up.connect(func(_lvl: int) -> void: pass)  # toasts come via world
 	_last_kills = int(player.get("kills"))
 	_refresh_static()
 
@@ -146,12 +166,11 @@ func _build() -> void:
 	_name_label = _label("Wanderer", 17)
 	_name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(_name_label)
-	_hp_bar = _bar(Color(0.85, 0.25, 0.32), 12)
-	vb.add_child(_hp_bar)
-	_mp_bar = _bar(Color(0.25, 0.6, 0.95), 9)
-	vb.add_child(_mp_bar)
-	_xp_bar = _bar(Color(0.65, 0.9, 0.25), 5)
-	vb.add_child(_xp_bar)
+	# hp / mana / xp bars are owned + fed by StatusBar (signal observer)
+	status_bar.build(_bar)
+	vb.add_child(status_bar.hp_bar)
+	vb.add_child(status_bar.mp_bar)
+	vb.add_child(status_bar.xp_bar)
 	_vitals_line = _label("", 13, Color(0.75, 0.78, 0.82))
 	_vitals_line.clip_text = true
 	vb.add_child(_vitals_line)
@@ -307,6 +326,7 @@ func _build() -> void:
 	_chat_input.add_theme_font_size_override("font_size", _fs(16))
 	add_child(_chat_input)
 	_chat_input.text_submitted.connect(_submit_chat)
+	chat.attach_input(_chat_input)
 	# ---- minimap top-right (104px board at S=1) ----
 	_minimap = MinimapScript.new()
 	_minimap.anchor_left = 1.0
@@ -319,6 +339,7 @@ func _build() -> void:
 	_minimap.setup(world.get("tiles"), player, sim)
 	_host_sheets()
 	_refresh_static()
+	status_bar.refresh_all()
 
 func _big_button(text: String, color: Color, min_size: Vector2, font_size: int = 22) -> Button:
 	var b := Button.new()
@@ -346,6 +367,20 @@ func _big_button(text: String, color: Color, min_size: Vector2, font_size: int =
 func _refresh_static() -> void:
 	if player == null:
 		return
+	_level_badge.text = str(int(player.get("level")))
+	_refresh_name_line()
+	_refresh_vitals_line()
+
+func _refresh_name_line() -> void:
+	_name_label.text = "%s · %s   %dg" % [str(sim.get("player_name")), str((sim.Vocations.def(sim.get("vocation")) as Dictionary).get("name", "?")), int(player.get("gold"))]
+
+func _refresh_vitals_line() -> void:
+	var pg: Vector3i = player.get("grid")
+	_vitals_line.text = "%s · %s · A%d · %dms" % [
+		WorldGen.region_name_at(pg),
+		"PZ" if WorldGen.in_safe_zone(pg.x, pg.y) else "wilds",
+		int(player.get("armor")), GameBalance.step_ms_for(int(player.get("heavy"))),
+	]
 
 func toggle_chat_input() -> void:
 	_chat_input.visible = not _chat_input.visible
@@ -358,13 +393,14 @@ func chat_open() -> bool:
 	return _chat_input != null and _chat_input.visible
 
 func _submit_chat(text: String) -> void:
-	_chat_input.text = ""
-	_chat_input.visible = false
-	_chat_input.release_focus()
-	world.say(text)
+	chat.submit(text)
 
 func chat_add(line: String) -> void:
-	_chat_lines.append(line)
+	chat.post(line)
+
+## Renders one line from the ChatSystem stream (history tail + fade reset).
+func _on_chat_message(text: String) -> void:
+	_chat_lines.append(text)
 	while _chat_lines.size() > 30:
 		_chat_lines.pop_front()
 	for c in _chat_box.get_children():
@@ -413,28 +449,10 @@ func _process(_delta: float) -> void:
 		return
 	var now: int = Time.get_ticks_msec()
 	_minimap.set("tiles", world.get("tiles"))  # follow rift travel across floors
-	# vitals
-	var lvl: int = int(player.get("level"))
-	var pg: Vector3i = player.get("grid")
-	_level_badge.text = str(lvl)
-	_name_label.text = "%s · %s   %dg" % [str(sim.get("player_name")), str((sim.Vocations.def(sim.get("vocation")) as Dictionary).get("name", "?")), int(player.get("gold"))]
-	_hp_bar.max_value = maxi(1, int(player.get("max_hp")))
-	_hp_bar.value = maxi(0, int(player.get("hp")))
-	_mp_bar.max_value = maxi(1, int(player.get("max_mana")))
-	_mp_bar.value = maxi(0, int(player.get("mana")))
-	var prev: int = GameBalance.xp_for_level(maxi(1, lvl - 1)) if lvl > 1 else 0
-	var next: int = GameBalance.xp_for_level(lvl)
-	_xp_bar.max_value = maxi(1, next - prev)
-	_xp_bar.value = clampi(int(player.get("xp")) - prev, 0, maxi(1, next - prev))
-	var region: String = WorldGen.region_name_at(pg)
-	_vitals_line.text = "%s · %s · A%d · %dms" % [
-		region,
-		"PZ" if WorldGen.in_safe_zone(pg.x, pg.y) else "wilds",
-		int(player.get("armor")), GameBalance.step_ms_for(int(player.get("heavy"))),
-	]
+	# vitals, name line and level badge render from PlayerGrid signals
+	# (StatusBar observer); chat renders from ChatSystem's stream. What is
+	# left here is time-driven UI: cooldown sweeps and decays.
 	_update_statuses()
-	# target info lives on the creature (name + tiered bar above it) — no plate.
-	# strike cooldown + shove readiness (offensive pads die inside the Sanctuary)
 	_update_pad(_strike_btn, "strike", "STRIKE", true)
 	_update_pad(_cleave_btn, "cleave", "CLEAVE", true)
 	_update_pad(_bolt_btn, "bolt", "BOLT", true)

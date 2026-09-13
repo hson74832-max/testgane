@@ -176,6 +176,13 @@ func say(text: String) -> void:
 func notify(text: String) -> void:
 	hud.chat_add(text)
 
+## ChatSystem network hook (dev WebSync only): player-sent lines join the
+## event queue pushed every 5s; system lines stay local.
+func on_chat_submitted(text: String) -> void:
+	if websync == null:
+		return
+	_event_queue.append({"event": "chat", "payload": {"text": text}})
+
 func _on_loot_chat(item_key: String, qty: int) -> void:
 	var rarity: String = String(GameBalance.item_def(item_key).get("rarity", "common"))
 	if rarity == "rare" or rarity == "epic":

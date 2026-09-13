@@ -5,8 +5,9 @@ extends Node
 ## then copy shared/content.json -> remnants-godot/data/content.json (script does it).
 ## Web owns the numbers. Godot owns the sim.
 ##
-## Architecture: this autoload parses content.json once and hands each slice
-## to the module that owns it:
+## Architecture: this autoload gets the merged content root from DataLoader
+## (core/data_loader.gd — slice files under data/ win, content.json is the
+## web-export fallback) and hands each slice to the module that owns it:
 ##   combat_balance  formulas, cooldowns, abilities, vocations, skills
 ##   item_db         item stats, equip slots, loot filter
 ##   monster_db      creature defs + AI params (spawn tables: WorldConfig.WORLD)
@@ -18,11 +19,13 @@ const CombatBalance := preload("res://scripts/balance/combat_balance.gd")
 const ItemDatabase := preload("res://scripts/balance/item_database.gd")
 const MonsterDatabase := preload("res://scripts/balance/monster_database.gd")
 const WorldConfig := preload("res://scripts/balance/world_config.gd")
+const DataLoader := preload("res://scripts/core/data_loader.gd")
 
 var combat_balance: CombatBalance
 var item_db: ItemDatabase
 var monster_db: MonsterDatabase
 var world_cfg: WorldConfig
+var data_loader: DataLoader
 
 ## Content version (bumped by the web export). Loader metadata, not balance.
 var VERSION: int = 0
@@ -75,28 +78,22 @@ func _init() -> void:
 	item_db = ItemDatabase.new()
 	monster_db = MonsterDatabase.new()
 	world_cfg = WorldConfig.new()
+	data_loader = DataLoader.new()
 
 func _ready() -> void:
 	load_balance()
 
 func load_balance(path: String = "res://data/content.json") -> bool:
-	if not FileAccess.file_exists(path):
-		push_warning("[GameBalance] missing %s, using built-in defaults" % path)
-		return false
-	var f := FileAccess.open(path, FileAccess.READ)
-	if f == null:
-		push_warning("[GameBalance] cannot open %s" % path)
-		return false
-	var parsed = JSON.parse_string(f.get_as_text())
-	if typeof(parsed) != TYPE_DICTIONARY:
-		push_error("[GameBalance] content.json is not a Dictionary")
+	var parsed: Dictionary = data_loader.load_content(path)
+	if parsed.is_empty():
+		push_warning("[GameBalance] no content found under data/ (slices or content.json), using built-in defaults")
 		return false
 	VERSION = int(parsed.get("version", 0))
 	combat_balance.load_content(parsed)
 	item_db.load_content(parsed)
 	monster_db.load_content(parsed)
 	world_cfg.load_content(parsed)
-	print("[GameBalance] v%d items=%d monsters=%d abilities=%d" % [VERSION, item_db.ITEMS.size(), monster_db.MONSTERS.size(), combat_balance.ABILITIES.size()])
+	print("[GameBalance] v%d items=%d monsters=%d abilities=%d sources=%s" % [VERSION, item_db.ITEMS.size(), monster_db.MONSTERS.size(), combat_balance.ABILITIES.size(), str(data_loader.sources)])
 	return true
 
 # --- formulas, 1:1 with testttt/src/lib/game/content.ts (CombatBalance) -----

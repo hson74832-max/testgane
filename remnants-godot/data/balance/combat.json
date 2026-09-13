@@ -1,0 +1,157 @@
+{
+	"balance": {
+		"COMBAT": {
+			"AGGRO_REACT_MS": 120.0,
+			"AUTO_ATTACK_MS": 2000.0,
+			"BASE_STEP_MS": 205.0,
+			"BURN_POWER": 6.0,
+			"CRIT_CHANCE": 0.14,
+			"CRIT_MULT": 1.85,
+			"CRYPT_MONSTERS": 8.0,
+			"DEAGGRO_TILES": 4.0,
+			"GOLD_DROP_PCT": 0.5,
+			"GROUND_DECAY_MS": 180000.0,
+			"LOOT_PROTECT_MS": 60000.0,
+			"MAX_MONSTERS": 34.0,
+			"MAX_STEP_PENALTY_MS": 90.0,
+			"MIN_DAMAGE": 1.0,
+			"MOB_HEAL_DIV": 20.0,
+			"MOB_HEAL_MS": 1500.0,
+			"MS_PER_HEAVY": 5.0,
+			"POISON_POWER": 4.0,
+			"PUSH_CD_MS": 2500.0,
+			"REGEN_HP_BASE": 1.0,
+			"REGEN_HP_DIV": 3.0,
+			"REGEN_MANA_BASE": 2.0,
+			"REGEN_MANA_DIV": 2.0,
+			"REGEN_MS": 1400.0,
+			"RESPAWN_MS": 2600.0,
+			"RIVAL_MARK_CHANCE": 0.14,
+			"RIVAL_MARK_MIN": 0.3,
+			"RIVAL_MARK_SPREAD": 0.3,
+			"ROOT_MS": 1200.0,
+			"SENSE_JITTER": 1.0,
+			"SENSE_MAX": 9.0,
+			"SENSE_MIN": 2.0,
+			"STATUS_MS": 6000.0,
+			"STATUS_TICK_MS": 1500.0,
+			"STEP_DIAGONAL_MULT": 1.4,
+			"STEP_MIN_MS": 120.0,
+			"STEP_SLOW_MULT": 1.6,
+			"WARD_BASE": 45.0,
+			"WARD_MS": 6000.0,
+			"WARD_PER_LEVEL": 5.0,
+			"WARD_PER_RANK": 10.0,
+			"XP_LOSS_PCT": 0.1
+		},
+		"xpForLevelSamples": {
+			"1": 60.0,
+			"10": 4247.0,
+			"12": 5951.0,
+			"2": 216.0,
+			"3": 457.0,
+			"5": 1178.0,
+			"8": 2811.0
+		}
+	},
+	"skillOrder": [
+		"tough",
+		"focus",
+		"swift",
+		"power",
+		"warding"
+	],
+	"skills": {
+		"focus": {
+			"desc": "+10 max mana / rank",
+			"effect": {
+				"maxMana": 10.0
+			},
+			"key": "focus",
+			"max": 5.0,
+			"name": "Focus"
+		},
+		"power": {
+			"desc": "+1 all damage / rank",
+			"effect": {
+				"damage": 1.0
+			},
+			"key": "power",
+			"max": 5.0,
+			"name": "Power"
+		},
+		"swift": {
+			"desc": "-4ms step / rank",
+			"effect": {
+				"stepMs": 4.0
+			},
+			"key": "swift",
+			"max": 5.0,
+			"name": "Swiftness"
+		},
+		"tough": {
+			"desc": "+15 max HP / rank",
+			"effect": {
+				"maxHp": 15.0
+			},
+			"key": "tough",
+			"max": 5.0,
+			"name": "Toughness"
+		},
+		"warding": {
+			"desc": "+10 ward strength / rank",
+			"effect": {
+				"ward": 10.0
+			},
+			"key": "warding",
+			"max": 3.0,
+			"name": "Warding"
+		}
+	},
+	"vocationOrder": [
+		"warrior",
+		"archer",
+		"magician"
+	],
+	"vocations": {
+		"archer": {
+			"blurb": "5-tile tick. Walls stop arrows.",
+			"hpMult": 1.0,
+			"key": "archer",
+			"manaMult": 1.0,
+			"meleeMult": 0.8,
+			"name": "Archer",
+			"spellMult": 1.0,
+			"tickBase": 4.0,
+			"tickRange": 5.0,
+			"tickScale": 0.7,
+			"tickShot": true
+		},
+		"magician": {
+			"blurb": "Single-target ruin. Frail, vast mana.",
+			"hpMult": 0.8,
+			"key": "magician",
+			"manaMult": 1.4,
+			"meleeMult": 0.7,
+			"name": "Magician",
+			"spellMult": 1.35,
+			"tickBase": 3.0,
+			"tickRange": 1.0,
+			"tickScale": 0.5,
+			"tickShot": false
+		},
+		"warrior": {
+			"blurb": "Melee metronome. Holds the line.",
+			"hpMult": 1.25,
+			"key": "warrior",
+			"manaMult": 0.85,
+			"meleeMult": 1.15,
+			"name": "Warrior",
+			"spellMult": 0.8,
+			"tickBase": 6.0,
+			"tickRange": 1.0,
+			"tickScale": 0.9,
+			"tickShot": false
+		}
+	}
+}
