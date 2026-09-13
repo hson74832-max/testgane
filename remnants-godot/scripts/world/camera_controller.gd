@@ -4,8 +4,10 @@ extends RefCounted
 ## 8); follow() snaps instead of gliding when the player jumped (rifts,
 ## ferries, respawns) so the camera never slides across the map.
 
-var world  # WorldView — wired at setup (untyped: no preload cycle)
+var world: WorldView  # wired at setup
 var camera: Camera2D
+
+const Constants := preload("res://scripts/core/constants.gd")
 
 ## Creates the camera under `parent` and aims it at `target` (the player).
 func setup(parent: Node2D, target: Node2D) -> void:
@@ -21,7 +23,7 @@ func setup(parent: Node2D, target: Node2D) -> void:
 func follow(target: Vector2) -> void:
 	if not is_instance_valid(camera):
 		return
-	if camera.position.distance_to(target) > 8.0 * float(WorldGen.TILE_PX):
+	if camera.position.distance_to(target) > Constants.CAMERA_SNAP_TILES * float(WorldGen.TILE_PX):
 		camera.position = target
 		camera.reset_smoothing()
 	else:
@@ -34,7 +36,7 @@ func visible_tiles(tiles: Array) -> Rect2i:
 	var w: int = int((tiles[0] as Array).size()) if not tiles.is_empty() else 0
 	var h: int = tiles.size()
 	if not is_instance_valid(camera) or w <= 0 or h <= 0:
-		return Rect2i(0, 0, mini(24, w), mini(24, h))
+		return Rect2i(0, 0, mini(Constants.MIN_VIEW_TILES, w), mini(Constants.MIN_VIEW_TILES, h))
 	var view: Vector2 = world.get_viewport_rect().size / maxf(0.01, camera.zoom.x)
 	var tl: Vector2 = camera.get_screen_center_position() / t - view / t / 2.0 - Vector2(1, 1)
 	var br: Vector2 = tl + view / t + Vector2(2, 2)

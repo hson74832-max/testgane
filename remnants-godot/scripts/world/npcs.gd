@@ -6,8 +6,10 @@ extends Node2D
 ## CONTENT LIVES IN content.ts (NPCS/FERRY/NPC_STOCK): new NPC = new row +
 ## export, zero code. NPC tiles block movement (player + monsters route around).
 
-var player = null
-var sim = null
+const Constants := preload("res://scripts/core/constants.gd")
+
+var player: PlayerGrid = null
+var sim: CombatSim = null
 ## Parsed rows: pos converted Vector3i, color converted Color.
 var defs: Array = []
 var ferry: Array = []
@@ -42,7 +44,7 @@ func heal_cost() -> int:
 func ferry_cost() -> int:
 	return GameBalance.NPC_FERRY_COST
 
-func npc_at(x: int, y: int, fz: int):
+func npc_at(x: int, y: int, fz: int) -> Variant:  # Dictionary or null
 	for n in defs:
 		var pos: Vector3i = n["pos"]
 		if pos.x == x and pos.y == y and pos.z == fz:
@@ -157,7 +159,7 @@ func travel(dest_key: String) -> bool:
 
 func _nearest_open(dest: Vector3i) -> Vector3i:
 	var ft: Array = sim.current_tiles()
-	for r in range(0, 4):
+	for r in range(0, Constants.COUNTER_SLIDE_RADIUS):
 		for dy in range(-r, r + 1):
 			for dx in range(-r, r + 1):
 				var c := Vector3i(dest.x + dx, dest.y + dy, dest.z)

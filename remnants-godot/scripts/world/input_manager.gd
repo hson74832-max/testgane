@@ -14,6 +14,8 @@ extends Node
 ## Movement (stick + d-pad) bypasses the chat keyboard lock on purpose —
 ## like the thumb stick, it never types.
 
+const Constants := preload("res://scripts/core/constants.gd")
+
 signal game_action(action: String, data: Dictionary)
 
 const ACTION_STRIKE := "strike"
@@ -30,9 +32,9 @@ const ACTION_SHOVE := "shove"
 const ACTION_SHOVE_SELF := "shove_self"
 const ACTION_TAP := "tap"
 
-var world  # WorldView — wired at setup (untyped: no preload cycle)
-var player: Node2D
-var sim: Node2D
+var world: WorldView  # wired at setup
+var player: PlayerGrid
+var sim: CombatSim
 
 # touch joystick state (left-half drag, invisible parity region)
 var _touch_origin: Vector2 = Vector2.ZERO
@@ -48,7 +50,7 @@ var _touch_shove_id: int = -1
 var _pad_stick := Vector2.ZERO
 var _dpad := Vector2i.ZERO
 
-func setup(p_world, p_player: Node2D, p_sim: Node2D) -> void:
+func setup(p_world: WorldView, p_player: PlayerGrid, p_sim: CombatSim) -> void:
 	world = p_world
 	player = p_player
 	sim = p_sim
@@ -89,11 +91,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch:
 		var t: InputEventScreenTouch = event
 		var vp: Vector2 = world.get_viewport_rect().size
-		if t.pressed and t.position.x < vp.x * 0.45 and not _touch_active and _touch_shove_id < 0:
+		if t.pressed and t.position.x < vp.x * Constants.TOUCH_STICK_ZONE and not _touch_active and _touch_shove_id < 0:
 			_touch_active = true
 			_touch_id = t.index
 			_touch_origin = t.position
-		elif t.pressed and t.position.x >= vp.x * 0.45:
+		elif t.pressed and t.position.x >= vp.x * Constants.TOUCH_STICK_ZONE:
 			var tile := _tile_from_screen(t.position)
 			var pg := player.get("grid") as Vector3i
 			_press_tile = tile
@@ -110,7 +112,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventScreenDrag:
 		var d: InputEventScreenDrag = event
 		if _touch_active and d.index == _touch_id:
-			game_action.emit(ACTION_STICK, {"vec": (d.position - _touch_origin) / 52.0})
+			game_action.emit(ACTION_STICK, {"vec": (d.position - _touch_origin) / Constants.JOYSTICK_RANGE_PX})
 		elif d.index == _touch_shove_id and _press_monster >= 0:
 			var tile2 := _tile_from_screen(d.position)
 			if tile2 != _press_tile:
@@ -191,7 +193,7 @@ func _unhandled_input(event: InputEvent) -> void:
 ## PlayerGrid.set_joystick like every other stick source.
 func _emit_pad_move() -> void:
 	var vec := _pad_stick
-	if vec.length() < 0.25:
+	if vec.length() < Constants.STICK_DEADZONE:
 		vec = Vector2(_dpad)
 	game_action.emit(ACTION_STICK, {"vec": vec})
 

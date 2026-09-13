@@ -349,8 +349,9 @@ func _physics_process(_delta: float) -> void:
 	if frame == 200:
 		var sim6 = main.get("sim")
 		var p6 = main.get("player")
-		p6.set("mana", 200)
+		# caps first: PlayerState setters clamp current to max on write
 		p6.set("max_mana", 200)
+		p6.set("mana", 200)
 		p6.set("hp", int(p6.get("max_hp")))
 		var v = _stage_adjacent(sim6, p6, main.get("tiles"), true)
 		if v == null:

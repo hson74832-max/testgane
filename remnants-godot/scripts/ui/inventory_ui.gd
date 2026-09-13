@@ -1,3 +1,4 @@
+class_name InventoryUI
 extends RefCounted
 ## InventoryUI — dedicated controller for the satchel + equipment grids:
 ## cell building, tooltips, drag-drop and the tap actions. The sheets keep
@@ -12,10 +13,10 @@ signal changed
 const UiKit := preload("res://scripts/ui/ui_kit.gd")
 const SlotScript := preload("res://scripts/ui/inventory_slot.gd")
 
-var world = null
-var sim = null
+var world: WorldView = null
+var sim: CombatSim = null
 
-func setup(p_world, p_sim) -> void:
+func setup(p_world: WorldView, p_sim: CombatSim) -> void:
 	world = p_world
 	sim = p_sim
 

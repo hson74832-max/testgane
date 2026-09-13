@@ -25,6 +25,7 @@ const MonsterScript := preload("res://scripts/combat/monster.gd")
 const Vocations := preload("res://scripts/combat/vocations.gd")
 const FlowField := preload("res://scripts/combat/flow_field.gd")
 const SimDraw := preload("res://scripts/combat/sim_draw.gd")
+const Constants := preload("res://scripts/core/constants.gd")
 const CombatSystem := preload("res://scripts/combat/systems/combat_system.gd")
 const LootSystem := preload("res://scripts/combat/systems/loot_system.gd")
 const AISystem := preload("res://scripts/combat/systems/ai_system.gd")
@@ -34,10 +35,18 @@ const PathfindingSystem := preload("res://scripts/combat/systems/pathfinding_sys
 # encumbrance sum, weapon damage sum. Starter kit matches web getOrCreate.
 const GEAR_ORDER: Array = ["helmet", "amulet", "armor", "weapon", "shield", "legs", "boots", "ring"]
 
-var vocation: String = "warrior"
+## Vocation lives in the player's serializable PlayerState; forwarded for the
+## combat math and the HUD. Assignments route through PlayerState's validated
+## setter, and its vocation_changed signal is relayed below (setup).
+var vocation: String:
+	get:
+		return player.state.vocation if player != null else "warrior"
+	set(value):
+		if player != null:
+			player.state.vocation = value
 
 var tiles: Array = []
-var player: Node2D = null
+var player: PlayerGrid = null
 var player_name: String = "Wanderer"
 
 var monsters: Array = []  # Array[Monster], all floors (update only current)
@@ -108,6 +117,7 @@ func setup(maps: Dictionary, p_player: Node2D, p_name: String = "Wanderer") -> v
 	player = p_player
 	player_name = p_name
 	add_to_group("combat_sim")
+	player.state.vocation_changed.connect(func(key: String) -> void: vocation_changed.emit(key))
 	# Layering (all z relative): floor (Main, 0) < telegraphs + monsters (here, 1)
 	# < player (5). Parent _draw runs before children, so telegraphs stay under
 	# monsters within this layer. Do NOT go negative: the floor would cover us.
@@ -126,9 +136,8 @@ func setup(maps: Dictionary, p_player: Node2D, p_name: String = "Wanderer") -> v
 func set_vocation(key: String) -> bool:
 	if not Vocations.valid(key) or key == vocation:
 		return key == vocation
-	vocation = key
+	vocation = key  # validated setter in PlayerState; relays vocation_changed
 	combat.apply_vocation_stats(true)
-	vocation_changed.emit(key)
 	var def: Dictionary = Vocations.def(key)
 	toast.emit("Path of the %s — %s" % [String(def["name"]), String(def["blurb"])], "good")
 	add_float(String(def["name"]).to_upper(), _v(player.grid) + Vector2(0, -0.6), Color(1.0, 0.82, 0.4), true)
@@ -169,9 +178,9 @@ func set_auto_attack(v: bool) -> void:
 		next_auto_at = Time.get_ticks_msec() + GameBalance.auto_attack_ms()
 
 # ---------------------------------------------------------------- queries
-func monster_at(x: int, y: int, fz: int = -1):
+func monster_at(x: int, y: int, fz: int = -1) -> Monster:
 	var z: int = fz if fz >= 0 else (int(player.grid.z) if player != null else 0)
-	for m in monsters:
+	for m: Monster in monsters:
 		if m.grid == Vector3i(x, y, z) and m.dying_at == 0:
 			return m
 	return null
@@ -183,10 +192,10 @@ func is_occupied(x: int, y: int, fz: int = -1) -> bool:
 func _blocked(x: int, y: int) -> bool:
 	return tile_blocker.is_valid() and bool(tile_blocker.call(x, y))
 
-func target():
+func target() -> Monster:
 	if target_id < 0 or player == null:
 		return null
-	for m in monsters:
+	for m: Monster in monsters:
 		if m.mid == target_id and m.dying_at == 0 and m.grid.z == player.grid.z:
 			return m
 	return null
@@ -204,7 +213,7 @@ func set_target(mid: int) -> void:
 func clip_target_to_view(r: Rect2i) -> void:
 	if target_id < 0:
 		return
-	var t = target()
+	var t: Monster = target()
 	if t == null:
 		target_id = -1
 		return
@@ -218,12 +227,12 @@ func cycle_target() -> void:
 		_deny_pacified()
 		return
 	var near: Array = []
-	for m in monsters:
-		var mm = m
+	for m: Monster in monsters:
+		var mm: Monster = m
 		if mm.dying_at != 0 or mm.grid.z != player.grid.z:
 			continue
 		var d: int = maxi(absi(mm.grid.x - player.grid.x), absi(mm.grid.y - player.grid.y))
-		if d <= 6:
+		if d <= Constants.MARK_RANGE_TILES:
 			near.append({"m": mm, "d": d})
 	if near.is_empty():
 		return
@@ -232,11 +241,11 @@ func cycle_target() -> void:
 	for i in range(near.size()):
 		if near[i]["m"].mid == target_id:
 			idx = i
-	var nm = near[(idx + 1) % near.size()]["m"]
+	var nm: Monster = near[(idx + 1) % near.size()]["m"]
 	set_target(nm.mid)
 
 func tap_tile(tx: int, ty: int) -> void:
-	var m = monster_at(tx, ty)
+	var m: Monster = monster_at(tx, ty)
 	if m != null:
 		if is_player_pacified():
 			_deny_pacified()
@@ -269,9 +278,9 @@ func _deny_pacified() -> void:
 	toast.emit("Pacified — step out of the Sanctuary to fight", "bad")
 
 # ---------------------------------------------------------------- fx
-func add_float(text: String, pos: Vector2, color: Color, crit: bool, ttl_ms: int = 1100) -> void:
+func add_float(text: String, pos: Vector2, color: Color, crit: bool, ttl_ms: int = Constants.FLOAT_TTL_MS) -> void:
 	floats.append({"pos": pos, "text": text, "color": color, "born": Time.get_ticks_msec(), "crit": crit, "ttl": ttl_ms})
-	if floats.size() > 40:
+	if floats.size() > Constants.FLOAT_MAX:
 		floats.pop_front()
 
 ## Presentation helpers live in SimDraw; these forwarders keep HUD/sheet
@@ -433,7 +442,7 @@ func _try_gate(now: int) -> void:
 	if monster_at(dest.x, dest.y, dest.z) != null:
 		spot = Vector3i(-999, -999, -999)
 		var dt: Array = floor_maps.get(dest.z, [])
-		for r in range(0, 4):
+		for r in range(0, Constants.GATE_SLIDE_RADIUS):
 			if spot.x > -900:
 				break
 			for dy in range(-r, r + 1):
@@ -507,7 +516,7 @@ func _physics_process(delta: float) -> void:
 	ai.update_mobs(now)
 	combat.resolve_telegraphs(now)
 	_decay(now)
-	for m in monsters:
+	for m: Monster in monsters:
 		m.sync_pos(delta)
 	_check_overlap()
 	queue_redraw()
@@ -517,7 +526,7 @@ func _check_overlap() -> void:
 	var seen := {}
 	seen[player.grid] = true
 	var pz: int = int(player.grid.z)
-	for m in monsters:
+	for m: Monster in monsters:
 		if m.dying_at != 0 or m.grid.z != pz:
 			continue
 		if seen.has(m.grid):
@@ -533,7 +542,7 @@ func _decay(now: int) -> void:
 	var kept: Array = []
 	for m in monsters:
 		var mm = m
-		if mm.dying_at == 0 or now - mm.dying_at < 320:
+		if mm.dying_at == 0 or now - mm.dying_at < Constants.CORPSE_FADE_MS:
 			kept.append(mm)
 		else:
 			mm.queue_free()

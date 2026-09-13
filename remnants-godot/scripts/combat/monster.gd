@@ -8,6 +8,8 @@ extends Node2D
 ## read (grid/hp/aggro/...) is shared, not per-instance logic.
 ## Mirrors engine.ts Monster fields (trimmed: no mob statuses in Phase 2).
 
+const Constants := preload("res://scripts/core/constants.gd")
+
 var mid: int = 0
 var def_key: String = "rat"
 var def: Dictionary = {}
@@ -71,7 +73,7 @@ func sync_pos(delta: float) -> void:
 	var target := Vector2(grid.x, grid.y)
 	var moving := render.distance_squared_to(target) > 0.0001
 	if moving:
-		var k: float = minf(1.0, delta / 0.11)
+		var k: float = minf(1.0, delta / Constants.RENDER_LERP_MONSTER_S)
 		render = render.lerp(target, k)
 		if render.distance_squared_to(target) <= 0.0001:
 			render = target  # snap: no sub-pixel drift, the lerp can stop
@@ -79,7 +81,7 @@ func sync_pos(delta: float) -> void:
 	var flash_on: bool = now < hit_flash_until
 	var winding: bool = now < windup_until
 	var dirty := moving \
-		or (dying_at != 0 and now - dying_at < 320) \
+		or (dying_at != 0 and now - dying_at < Constants.CORPSE_FADE_MS) \
 		or flash_on or winding \
 		or hp != _drawn_hp or show_bar != _drawn_bar \
 		or flash_on != _drawn_flash or winding != _drawn_winding \

@@ -21,7 +21,7 @@ const TILE_COLORS: Dictionary = {
 	"gate": Color(0.35, 0.2, 0.5),
 }
 
-var world  # WorldView — wired at setup (untyped: no preload cycle)
+var world: WorldView  # wired at setup
 
 func draw(canvas: CanvasItem) -> void:
 	var tiles: Array = world.tiles

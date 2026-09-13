@@ -17,13 +17,14 @@ const BagSheet := preload("res://scripts/ui/sheets/bag_sheet.gd")
 const SkillSheet := preload("res://scripts/ui/sheets/skill_sheet.gd")
 const NpcSheet := preload("res://scripts/ui/sheets/npc_sheet.gd")
 const ChatSystemScript := preload("res://scripts/ui/chat_system.gd")
+const Constants := preload("res://scripts/core/constants.gd")
 const StatusBarScript := preload("res://scripts/ui/status_bar.gd")
 const FADE_AFTER_MS := 3800
 const FADE_ALPHA := 0.32
 
-var world: Node = null
-var player: Node = null
-var sim: Node = null
+var world: WorldView = null
+var player: PlayerGrid = null
+var sim: CombatSim = null
 var chat: ChatSystemScript = null
 var status_bar: StatusBarScript = null
 
@@ -401,7 +402,7 @@ func chat_add(line: String) -> void:
 ## Renders one line from the ChatSystem stream (history tail + fade reset).
 func _on_chat_message(text: String) -> void:
 	_chat_lines.append(text)
-	while _chat_lines.size() > 30:
+	while _chat_lines.size() > ChatSystemScript.MAX_HISTORY:
 		_chat_lines.pop_front()
 	for c in _chat_box.get_children():
 		c.queue_free()
@@ -439,7 +440,7 @@ func _close_sheets() -> void:
 func show_toast(text: String) -> void:
 	_toast_text = text
 	_toast_label.text = text
-	_toast_until = Time.get_ticks_msec() + 2600
+	_toast_until = Time.get_ticks_msec() + Constants.TOAST_VISIBLE_MS
 
 func show_death(killed_by: String, xp_lost: int, gold: int) -> void:
 	_death_sub.text = "Slain by %s\n-%d xp   -%dg dropped where you fell (60s claim)\nRespawning at Sanctuary…" % [killed_by, xp_lost, gold]
@@ -475,7 +476,7 @@ func _process(_delta: float) -> void:
 			_npc_sheet.visible = false
 			sim.toast.emit("Deal closed — too far from the counter.", "info")
 	# chat hides when idle (unless typing) — sheets cover the rest
-	_chat_panel.modulate.a = 0.0 if (now - _chat_last > 6000 and not _chat_input.visible) else 1.0
+	_chat_panel.modulate.a = 0.0 if (now - _chat_last > Constants.CHAT_VISIBLE_MS and not _chat_input.visible) else 1.0
 	# death overlay + kill haptic
 	_death_dim.visible = bool(player.get("dead"))
 	var kills: int = int(player.get("kills"))

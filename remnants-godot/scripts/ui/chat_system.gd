@@ -11,12 +11,12 @@ signal chat_submitted(text: String)         # player-sent lines (network hook)
 
 const MAX_HISTORY := 30
 
-var world  # WorldView — wired at setup (untyped: no preload cycle)
+var world: WorldView  # wired at setup
 var _input: LineEdit = null
 var _history: Array = []  # canonical log; the HUD renders its own tail
 var _commands: Dictionary = {}  # name -> Callable(args: Array[String])
 
-func setup(p_world) -> void:
+func setup(p_world: WorldView) -> void:
 	world = p_world
 	register_command("help", _cmd_help)
 

@@ -1,3 +1,4 @@
+class_name WorldView
 extends Node2D
 ## WorldView — Phase 2 + mobile HUD. Owns map + PlayerGrid + CombatSim + Hud,
 ## and delegates the three big concerns to extracted modules:
@@ -18,6 +19,7 @@ const CombatSimScript := preload("res://scripts/combat/combat_sim.gd")
 const HudScript := preload("res://scripts/ui/hud.gd")
 const DebugOverlayScript := preload("res://scripts/ui/debug_overlay.gd")
 const WebSyncScript := preload("res://scripts/net/web_sync.gd")
+const Constants := preload("res://scripts/core/constants.gd")
 const NpcsScript := preload("res://scripts/world/npcs.gd")
 const RendererScript := preload("res://scripts/world/renderer.gd")
 const InputManagerScript := preload("res://scripts/world/input_manager.gd")
@@ -25,9 +27,9 @@ const CameraControllerScript := preload("res://scripts/world/camera_controller.g
 
 var tiles: Array = []
 var floor_maps: Dictionary = {}
-var player: Node2D
-var sim: Node2D
-var npcs: Node2D
+var player: PlayerGrid
+var sim: CombatSim
+var npcs: NpcsScript
 var hud: CanvasLayer
 var debug_overlay: CanvasLayer
 var seed_value: int = 1337
@@ -43,7 +45,7 @@ var camera: Camera2D:
 	get: return camera_ctl.camera
 
 # --- WebSync live push (dev only, env-gated: REMNANTS_SYNC=1, REMNANTS_WEB=url) ---
-var websync = null
+var websync: WebSyncScript = null
 var _loot_queue: Array = []
 var _event_queue: Array = []
 var _pending_death := {}
@@ -109,7 +111,7 @@ func _ready() -> void:
 		sim.leveled_up.connect(func(level: int) -> void: _event_queue.append({"event": "levelup", "payload": {"level": level}}))
 		websync.load_character("Wanderer")
 		var timer := Timer.new()
-		timer.wait_time = 5.0
+		timer.wait_time = Constants.SYNC_PERIOD_S
 		timer.autostart = true
 		add_child(timer)
 		timer.timeout.connect(_push_sync)
@@ -127,7 +129,7 @@ func _process(_delta: float) -> void:
 		# chat owns the keyboard while open (GUI consumption misses polling)
 		player.set("input_blocked", hud.chat_open())
 		# marks die off-screen (2-tile hysteresis against edge flicker)
-		sim.clip_target_to_view(_visible_tiles().grow(2))
+		sim.clip_target_to_view(_visible_tiles().grow(Constants.VIEW_HYSTERESIS_TILES))
 	# Floor is drawn windowed around the camera: it must redraw every frame
 	# or the camera slides onto never-drawn canvas (black tiles). Regression
 	# from the Phase 2 rewrite, which dropped the stepped->redraw wiring.
@@ -281,7 +283,7 @@ func _monster_by_id(mid: int):
 # ---- websync ----------------------------------------------------------------
 func _on_looted(item_key: String, qty: int) -> void:
 	_loot_queue.append({"itemKey": item_key, "qty": qty})
-	if _loot_queue.size() > 50:
+	if _loot_queue.size() > Constants.LOOT_QUEUE_MAX:
 		_loot_queue.pop_front()
 
 func _player_state() -> Dictionary:

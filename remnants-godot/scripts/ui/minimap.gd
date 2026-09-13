@@ -3,8 +3,8 @@ extends Control
 ## monsters (red = aggro), loot (yellow = takable, red = locked), cyan player.
 
 var tiles: Array = []
-var player = null
-var sim = null
+var player: PlayerGrid = null
+var sim: CombatSim = null
 var _acc := 0.0
 
 const KIND_COLORS: Dictionary = {

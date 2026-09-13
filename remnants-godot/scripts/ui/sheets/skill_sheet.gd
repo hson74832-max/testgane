@@ -3,9 +3,9 @@ extends PanelContainer
 
 const UiKit := preload("res://scripts/ui/ui_kit.gd")
 
-var world = null
-var player = null
-var sim = null
+var world: WorldView = null
+var player: PlayerGrid = null
+var sim: CombatSim = null
 var S := 1.0
 var _body: VBoxContainer
 

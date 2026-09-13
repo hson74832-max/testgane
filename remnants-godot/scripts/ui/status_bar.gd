@@ -10,7 +10,7 @@ extends RefCounted
 var hp_bar: ProgressBar
 var mp_bar: ProgressBar
 var xp_bar: ProgressBar
-var _player: Node = null
+var _player: PlayerGrid = null
 
 func build(make_bar: Callable) -> void:
 	hp_bar = make_bar.call(Color(0.85, 0.25, 0.32), 12)
@@ -18,7 +18,7 @@ func build(make_bar: Callable) -> void:
 	xp_bar = make_bar.call(Color(0.65, 0.9, 0.25), 5)
 
 ## Wire once; survives HUD rebuilds because handlers read current refs.
-func observe(p: Node) -> void:
+func observe(p: PlayerGrid) -> void:
 	_player = p
 	p.player_hp_changed.connect(_on_hp)
 	p.player_mana_changed.connect(_on_mana)

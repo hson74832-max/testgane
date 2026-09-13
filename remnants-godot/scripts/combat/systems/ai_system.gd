@@ -9,8 +9,9 @@ extends RefCounted
 ## Adding a creature is a data edit — no code here.
 
 const MonsterScript := preload("res://scripts/combat/monster.gd")
+const Constants := preload("res://scripts/core/constants.gd")
 
-var sim  # CombatSim — wired by the sim at construction (untyped: no preload cycle)
+var sim: CombatSim  # wired by the sim at construction (global class, no cycle)
 
 var _next_spawn_check: int = 0
 
@@ -38,7 +39,7 @@ func pick_weighted(table: Array) -> String:
 	return String(table[0]["key"])
 
 func spawn_monster(initial: bool = false, fz: int = 0) -> void:
-	var player: Node2D = sim.player
+	var player: PlayerGrid = sim.player
 	if player == null:
 		return
 	var ft: Array = sim.floor_maps.get(fz, [])
@@ -46,7 +47,7 @@ func spawn_monster(initial: bool = false, fz: int = 0) -> void:
 		return
 	var fw: int = (ft[0] as Array).size()
 	var fh: int = ft.size()
-	for attempt in range(40):
+	for attempt in range(Constants.SPAWN_ATTEMPTS):
 		var x: int = 1 + randi() % maxi(1, fw - 2)
 		var y: int = 1 + randi() % maxi(1, fh - 2)
 		if not WorldGen.is_walkable(ft, x, y):
@@ -55,7 +56,7 @@ func spawn_monster(initial: bool = false, fz: int = 0) -> void:
 			continue
 		if not initial and fz == int(player.grid.z):
 			var dist: int = maxi(absi(x - player.grid.x), absi(y - player.grid.y))
-			if dist < 9:
+			if dist < Constants.SPAWN_MIN_DIST_TILES:
 				continue
 		if fz == int(player.grid.z) and x == player.grid.x and y == player.grid.y:
 			continue  # one soul per tile: never spawn onto the player
@@ -86,7 +87,7 @@ func spawn_monster(initial: bool = false, fz: int = 0) -> void:
 
 func floor_count(fz: int) -> int:
 	var n := 0
-	for m in sim.monsters:
+	for m: Monster in sim.monsters:
 		if m.grid.z == fz and m.dying_at == 0:
 			n += 1
 	return n
@@ -103,11 +104,11 @@ func maybe_top_up(now: int) -> void:
 
 # ---------------------------------------------------------------- behavior
 func update_mobs(now: int) -> void:
-	var player: Node2D = sim.player
+	var player: PlayerGrid = sim.player
 	var player_safe: bool = WorldGen.in_safe_zone(player.grid.x, player.grid.y)
 	sim.pathfinding.ensure_field(player.grid)
-	for m in sim.monsters:
-		var mm = m
+	for m: Monster in sim.monsters:
+		var mm: Monster = m
 		if mm.dying_at != 0:
 			continue
 		if mm.grid.z != int(player.grid.z):
@@ -115,7 +116,7 @@ func update_mobs(now: int) -> void:
 			continue  # other floors are frozen while you are away
 		var dist: int = maxi(absi(mm.grid.x - player.grid.x), absi(mm.grid.y - player.grid.y))
 		# readable at a glance: bar on when marked, within 3 tiles, or damaged.
-		mm.show_bar = mm.dying_at == 0 and (sim.target_id == mm.mid or dist <= 3)
+		mm.show_bar = mm.dying_at == 0 and (sim.target_id == mm.mid or dist <= Constants.BAR_RANGE_TILES)
 		if not mm.aggro and dist <= mm.sense and not player_safe:
 			mm.aggro = true
 			# react promptly: a stale wander cooldown must not root a mob
@@ -163,8 +164,8 @@ func update_mobs(now: int) -> void:
 
 ## Idle drift: try all 8 lanes shuffled, take the first legal one. The old
 ## single-die-roll version left pocketed monsters standing still for minutes.
-func wander_step(mm) -> bool:
-	var player: Node2D = sim.player
+func wander_step(mm: Monster) -> bool:
+	var player: PlayerGrid = sim.player
 	var dirs: Array = [
 		Vector2i(-1, -1), Vector2i(0, -1), Vector2i(1, -1),
 		Vector2i(-1, 0), Vector2i(1, 0),
@@ -188,11 +189,11 @@ func wander_step(mm) -> bool:
 			return true
 	return false
 
-func telegraph_shape(m) -> Array:
+func telegraph_shape(m: Monster) -> Array:
 	# Geometry comes from the content row (single/line/radial) — new monsters
 	# need no code here, just a shape in content.ts.
 	var out: Array = []
-	var player: Node2D = sim.player
+	var player: PlayerGrid = sim.player
 	var pz: int = int(player.grid.z)
 	match String((m.def as Dictionary).get("shape", "single")):
 		"radial":

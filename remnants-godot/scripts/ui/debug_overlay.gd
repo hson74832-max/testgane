@@ -4,7 +4,7 @@ extends CanvasLayer
 ## per-creature rows show the exact aggro inputs (dist/sense/safe/flow) and
 ## attack state (windup-in/cadence-in/telegraph?). Screenshot this with bugs.
 
-var world = null
+var world: Node = null  # WorldView; Node keeps the hud preload cycle out
 var _label: Label
 var _acc := 0.0
 

@@ -10,8 +10,9 @@ extends RefCounted
 ## status dots, auto-attack ticks, telegraph resolution and the shove kit.
 
 const Vocations := preload("res://scripts/combat/vocations.gd")
+const Constants := preload("res://scripts/core/constants.gd")
 
-var sim  # CombatSim — wired by the sim at construction (untyped: no preload cycle)
+var sim: CombatSim  # wired by the sim at construction (global class, no cycle)
 
 ## Shove destination preview: {from:Vector3i, to:Vector3i, valid:bool}.
 ## CombatSim forwards it as `push_preview` for SimDraw.
@@ -19,7 +20,7 @@ var push_preview: Dictionary = {}
 
 # ---------------------------------------------------------------- abilities
 func cast_ability(key: String) -> void:
-	var player: Node2D = sim.player
+	var player: PlayerGrid = sim.player
 	if player == null or bool(player.get("dead")):
 		return
 	var def: Dictionary = _ability_def(key)
@@ -41,8 +42,8 @@ func cast_ability(key: String) -> void:
 		_:
 			sim.add_float("unshaped", sim._v(player.grid), Color(0.58, 0.64, 0.72), false)
 
-func _need_target(def: Dictionary):
-	var player: Node2D = sim.player
+func _need_target(def: Dictionary) -> Monster:
+	var player: PlayerGrid = sim.player
 	var tgt = sim.target()
 	if tgt == null:
 		sim.add_float("nothing marked", sim._v(player.grid), Color(0.58, 0.64, 0.72), false)
@@ -53,17 +54,17 @@ func _need_target(def: Dictionary):
 		return null
 	return tgt
 
-func _face(tgt) -> void:
-	var player: Node2D = sim.player
+func _face(tgt: Monster) -> void:
+	var player: PlayerGrid = sim.player
 	player.set("facing", Vector2i(sim.signi(tgt.grid.x - player.grid.x), sim.signi(tgt.grid.y - player.grid.y)))
 
 func _melee_damage(base: int) -> int:
-	var player: Node2D = sim.player
+	var player: PlayerGrid = sim.player
 	var bonus: int = int(GameBalance.stats_for_level(int(player.get("level")))["damageBonus"]) + int(player.get("weapon_damage"))
 	return maxi(1, int(round(float(base + bonus) * float((Vocations.def(sim.vocation) as Dictionary).get("melee_mult", 1.0)))))
 
 func _exec_single(def: Dictionary) -> void:
-	var player: Node2D = sim.player
+	var player: PlayerGrid = sim.player
 	var now: int = Time.get_ticks_msec()
 	if now < int((player.get("cooldowns") as Dictionary).get(String(def.get("key", "")), 0)):
 		return
@@ -87,7 +88,7 @@ func _exec_single(def: Dictionary) -> void:
 	sim.queue_redraw()
 
 func _exec_radial(def: Dictionary) -> void:
-	var player: Node2D = sim.player
+	var player: PlayerGrid = sim.player
 	var r: Dictionary = _pay_ability(String(def.get("key", "")))
 	if not bool(r.get("ok", false)):
 		return
@@ -107,7 +108,7 @@ func _exec_radial(def: Dictionary) -> void:
 	sim.queue_redraw()
 
 func _exec_beam(def: Dictionary) -> void:
-	var player: Node2D = sim.player
+	var player: PlayerGrid = sim.player
 	var tgt = _need_target(def)
 	if tgt == null:
 		return
@@ -123,7 +124,7 @@ func _exec_beam(def: Dictionary) -> void:
 	sim.projectiles.append({
 		"fx": player.grid.x, "fy": player.grid.y, "tx": tgt.grid.x, "ty": tgt.grid.y,
 		"z": int(player.grid.z),
-		"born": now, "duration": int(def.get("windup", 340)) + 120, "color": Color.html(String(def.get("color", "#4cc9f0"))),
+		"born": now, "duration": int(def.get("windup", 340)) + Constants.BOLT_TRAVEL_EXTRA_MS, "color": Color.html(String(def.get("color", "#4cc9f0"))),
 	})
 	sim.telegraphs.append({
 		"id": sim._nid(), "tiles": [tgt.grid], "start_at": now, "resolve_at": now + int(def.get("windup", 340)) + 120,
@@ -133,7 +134,7 @@ func _exec_beam(def: Dictionary) -> void:
 	sim.queue_redraw()
 
 func _exec_self(def: Dictionary) -> void:
-	var player: Node2D = sim.player
+	var player: PlayerGrid = sim.player
 	var r: Dictionary = _pay_ability(String(def.get("key", "")))
 	if not bool(r.get("ok", false)):
 		return
@@ -153,7 +154,7 @@ func _ability_def(key: String) -> Dictionary:
 	return {}
 
 func ability_cooldown_pct(key: String) -> float:
-	var player: Node2D = sim.player
+	var player: PlayerGrid = sim.player
 	var def: Dictionary = _ability_def(key)
 	if def.is_empty():
 		return 0.0
@@ -163,7 +164,7 @@ func ability_cooldown_pct(key: String) -> float:
 	return float(left) / float(maxi(1, int(def.get("cooldown", 1))))
 
 func strike_cooldown_pct() -> float:
-	var player: Node2D = sim.player
+	var player: PlayerGrid = sim.player
 	var cd: int = int(_ability_def("strike").get("cooldown", 850))
 	var ready: int = int((player.get("cooldowns") as Dictionary).get("strike", 0))
 	var left: int = ready - Time.get_ticks_msec()
@@ -173,7 +174,7 @@ func strike_cooldown_pct() -> float:
 
 func _pay_ability(key: String) -> Dictionary:
 	# Returns {ok, def} — checks dead/CD/mana like engine.ts castAbility.
-	var player: Node2D = sim.player
+	var player: PlayerGrid = sim.player
 	var out := {"ok": false, "def": {}}
 	if player == null or bool(player.get("dead")):
 		return out
@@ -196,7 +197,7 @@ func _pay_ability(key: String) -> Dictionary:
 
 # ---------------------------------------------------------------- damage math
 func _damage_bonus() -> int:
-	var player: Node2D = sim.player
+	var player: PlayerGrid = sim.player
 	return int(GameBalance.stats_for_level(int(player.get("level")))["damageBonus"]) + int(player.get("weapon_damage")) + _skill_bonus("damage")
 
 ## Spell damage for the magician path (Cleave/Bolt scale 35% up, steel down).
@@ -218,7 +219,7 @@ func _skill_bonus(key: String) -> int:
 
 ## Vocation-scaled growth. announce=false at boot (world already toasted).
 func apply_vocation_stats(keep_current: bool) -> void:
-	var player: Node2D = sim.player
+	var player: PlayerGrid = sim.player
 	var base: Dictionary = GameBalance.stats_for_level(int(player.get("level")))
 	var v: Dictionary = Vocations.def(sim.vocation)
 	var max_hp: int = maxi(1, int(floor(float(base["maxHp"]) * float(v["hp_mult"])))) + _skill_bonus("maxHp")
@@ -239,8 +240,8 @@ func tick_range() -> int:
 ## Auto tick on the marked target (held while pacified: Sanctuary never deals
 ## damage). next_auto_at / auto_attack live on the sim.
 func try_auto_attack(now: int) -> void:
-	var player: Node2D = sim.player
-	var marked = sim.target()
+	var player: PlayerGrid = sim.player
+	var marked: Monster = sim.target()
 	if marked == null or sim.is_player_pacified():
 		sim.next_auto_at = now + GameBalance.auto_attack_ms()
 	elif sim.auto_attack and now >= sim.next_auto_at:
@@ -251,8 +252,8 @@ func try_auto_attack(now: int) -> void:
 		else:
 			sim.next_auto_at = now
 
-func _auto_swing(m) -> void:
-	var player: Node2D = sim.player
+func _auto_swing(m: Monster) -> void:
+	var player: PlayerGrid = sim.player
 	var v: Dictionary = Vocations.def(sim.vocation)
 	var lvl: int = int(player.get("level"))
 	if bool(v.get("tick_shot", false)):
@@ -262,7 +263,7 @@ func _auto_swing(m) -> void:
 			return
 		sim.projectiles.append({
 			"fx": player.grid.x, "fy": player.grid.y, "tx": m.grid.x, "ty": m.grid.y,
-			"z": int(player.grid.z), "born": Time.get_ticks_msec(), "duration": 150,
+			"z": int(player.grid.z), "born": Time.get_ticks_msec(), "duration": Constants.ARROW_FLY_MS,
 			"color": Color(1.0, 0.95, 0.75),
 		})
 		damage_monster(m, int(v.get("tick_base", 4)) + int(floor(float(lvl) * float(v.get("tick_scale", 0.7)))) + _skill_bonus("damage"))
@@ -279,7 +280,7 @@ func damage_monster(m, amount: int) -> void:
 	var crit: bool = randf() < float(GameBalance.COMBAT.get("CRIT_CHANCE", 0.14))
 	var dmg: int = maxi(1, int(round((float(amount) * float(GameBalance.COMBAT.get("CRIT_MULT", 1.85))) if crit else float(amount))))
 	m.hp -= dmg
-	m.hit_flash_until = now + 160
+	m.hit_flash_until = now + Constants.HIT_FLASH_MS
 	m.aggro = true
 	m.damage_by[sim.player_name] = int(m.damage_by.get(sim.player_name, 0)) + dmg
 	sim.add_float(("%d!" % dmg) if crit else str(dmg), sim._v(m.grid), Color(1.0, 0.82, 0.4) if crit else Color.WHITE, crit)
@@ -287,7 +288,7 @@ func damage_monster(m, amount: int) -> void:
 		kill_monster(m)
 	sim.queue_redraw()
 
-func _claimant(m) -> String:
+func _claimant(m: Monster) -> String:
 	var best: String = sim.player_name
 	var best_val := -1
 	for k in m.damage_by.keys():
@@ -296,8 +297,8 @@ func _claimant(m) -> String:
 			best_val = int(m.damage_by[k])
 	return best
 
-func kill_monster(m) -> void:
-	var player: Node2D = sim.player
+func kill_monster(m: Monster) -> void:
+	var player: PlayerGrid = sim.player
 	var now: int = Time.get_ticks_msec()
 	m.dying_at = now
 	player.set("kills", int(player.get("kills")) + 1)
@@ -320,7 +321,7 @@ func kill_monster(m) -> void:
 		sim.target_id = -1
 
 func damage_player(amount: int, source: String, status: String = "") -> void:
-	var player: Node2D = sim.player
+	var player: PlayerGrid = sim.player
 	if bool(player.get("dead")):
 		return
 	var now: int = Time.get_ticks_msec()
@@ -351,7 +352,7 @@ func damage_player(amount: int, source: String, status: String = "") -> void:
 	sim.queue_redraw()
 
 func kill_player(source: String) -> void:
-	var player: Node2D = sim.player
+	var player: PlayerGrid = sim.player
 	var now: int = Time.get_ticks_msec()
 	player.set("dead", true)
 	player.set("hp", 0)
@@ -374,11 +375,11 @@ func kill_player(source: String) -> void:
 
 ## Status dots + expiry + ward cleanup, called from the sim's tick.
 func process_statuses(now: int) -> void:
-	var player: Node2D = sim.player
+	var player: PlayerGrid = sim.player
 	var sts: Array = player.get("statuses")
 	for s in sts.duplicate():
 		if int(s.get("next_tick", 0)) > 0 and now >= int(s["next_tick"]) and now < int(s["until"]):
-			s["next_tick"] = now + 1500
+			s["next_tick"] = now + int(GameBalance.COMBAT.get("STATUS_TICK_MS", 1500))
 			damage_player(int(s["power"]), "Venom" if String(s["key"]) == "poison" else "Cinders")
 	sts.assign(sts.filter(func(s): return now < int(s.get("until", 0))))
 	player.set("slowed", sts.any(func(s): return String(s.get("key", "")) == "slow"))
@@ -387,7 +388,7 @@ func process_statuses(now: int) -> void:
 
 ## Resolve due telegraphs: monster hits, player Strikes/Bolts, Cleaves.
 func resolve_telegraphs(now: int) -> void:
-	var player: Node2D = sim.player
+	var player: PlayerGrid = sim.player
 	for t in sim.telegraphs:
 		if bool(t["resolved"]) or now < int(t["resolve_at"]):
 			continue
@@ -400,16 +401,16 @@ func resolve_telegraphs(now: int) -> void:
 				if cell == player.grid:
 					hit = true
 			if hit:
-				var src = null
-				for m in sim.monsters:
+				var src: Monster = null
+				for m: Monster in sim.monsters:
 					if m.mid == int(t["source_id"]):
 						src = m
 				damage_player(int(t["damage"]), String(src.def["name"]) if src != null else "Something in the dark", String(t.get("status", "")))
 			else:
 				sim.add_float("dodged", sim._v(player.grid) + Vector2(0, -0.4), Color(0.58, 0.64, 0.72), false)
 		elif int(t["source_id"]) != 0:
-			var m = null
-			for mm in sim.monsters:
+			var m: Monster = null
+			for mm: Monster in sim.monsters:
 				if mm.mid == int(t["source_id"]) and mm.dying_at == 0:
 					m = mm
 			if m != null:
@@ -424,7 +425,7 @@ func resolve_telegraphs(now: int) -> void:
 					sim.add_float("miss", sim._v(m.grid), Color(0.58, 0.64, 0.72), false)
 		else:
 			# Cleave: source_id 0, radial around the player at cast time.
-			for mm2 in sim.monsters:
+			for mm2: Monster in sim.monsters:
 				if mm2.dying_at != 0:
 					continue
 				for cell in (t["tiles"] as Array):
@@ -433,8 +434,8 @@ func resolve_telegraphs(now: int) -> void:
 						break
 
 # ---------------------------------------------------------------- shove
-func can_push(m, tx: int, ty: int) -> Dictionary:
-	var player: Node2D = sim.player
+func can_push(m: Monster, tx: int, ty: int) -> Dictionary:
+	var player: PlayerGrid = sim.player
 	var now: int = Time.get_ticks_msec()
 	if bool(player.get("dead")):
 		return {"ok": false, "reason": "dead"}
@@ -461,7 +462,7 @@ func can_push(m, tx: int, ty: int) -> Dictionary:
 		return {"ok": false, "reason": "Cannot shove into Sanctuary"}
 	return {"ok": true}
 
-func preview_push(m, tx: int, ty: int) -> void:
+func preview_push(m: Monster, tx: int, ty: int) -> void:
 	if m == null:
 		push_preview = {}
 	else:
@@ -473,8 +474,8 @@ func clear_push_preview() -> void:
 	push_preview = {}
 	sim.queue_redraw()
 
-func push(m, tx: int, ty: int) -> Dictionary:
-	var player: Node2D = sim.player
+func push(m: Monster, tx: int, ty: int) -> Dictionary:
+	var player: PlayerGrid = sim.player
 	var v: Dictionary = can_push(m, tx, ty)
 	var now: int = Time.get_ticks_msec()
 	push_preview = {}
@@ -486,8 +487,8 @@ func push(m, tx: int, ty: int) -> Dictionary:
 		return v
 	m.grid = Vector3i(tx, ty, m.grid.z)
 	m.aggro = true
-	m.push_lock_until = now + 1200
-	m.next_move_at = maxi(m.next_move_at, now + 350)
+	m.push_lock_until = now + Constants.PUSH_LOCK_MS
+	m.next_move_at = maxi(m.next_move_at, now + Constants.PUSH_MOVE_LOCK_MS)
 	if now < m.windup_until:
 		m.windup_until = 0
 		var kept: Array = []
@@ -506,7 +507,7 @@ func push(m, tx: int, ty: int) -> Dictionary:
 ## cadence and cooldown, cannot bypass a drink/cast root, and never moves
 ## onto (or through) a creature or an NPC fixture.
 func can_push_self(tx: int, ty: int) -> Dictionary:
-	var player: Node2D = sim.player
+	var player: PlayerGrid = sim.player
 	var now: int = Time.get_ticks_msec()
 	if player == null or bool(player.get("dead")):
 		return {"ok": false, "reason": "dead"}
@@ -525,13 +526,13 @@ func can_push_self(tx: int, ty: int) -> Dictionary:
 	return {"ok": true}
 
 func preview_push_self(tx: int, ty: int) -> void:
-	var player: Node2D = sim.player
+	var player: PlayerGrid = sim.player
 	var v: Dictionary = can_push_self(tx, ty)
 	push_preview = {"from": player.grid, "to": Vector3i(tx, ty, player.grid.z), "valid": bool(v.get("ok", false))}
 	sim.queue_redraw()
 
 func push_self(tx: int, ty: int) -> Dictionary:
-	var player: Node2D = sim.player
+	var player: PlayerGrid = sim.player
 	var v: Dictionary = can_push_self(tx, ty)
 	push_preview = {}
 	if not bool(v.get("ok", false)):

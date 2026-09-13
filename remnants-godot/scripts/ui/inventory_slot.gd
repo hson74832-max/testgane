@@ -8,7 +8,7 @@ extends Button
 ## drag-drop; dragging lives between filled cells and drop targets.
 
 var payload := {}
-var inv = null  # InventoryUI — handles can_drop/drop
+var inv: InventoryUI = null  # handles can_drop/drop
 
 func _get_drag_data(_at: Vector2):
 	var kind := String(payload.get("kind", ""))

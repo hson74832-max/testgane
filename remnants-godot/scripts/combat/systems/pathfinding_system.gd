@@ -6,8 +6,9 @@ extends RefCounted
 ## regression contract covered in tests/smoke_runner.gd.
 
 const FlowField := preload("res://scripts/combat/flow_field.gd")
+const Constants := preload("res://scripts/core/constants.gd")
 
-var sim  # CombatSim — wired by the sim at construction (untyped: no preload cycle)
+var sim: CombatSim  # wired by the sim at construction (global class, no cycle)
 
 ## Shared chase field. CombatSim forwards it as `flow` for the debug overlay.
 var flow := FlowField.new()
@@ -44,11 +45,11 @@ func has_sight(a: Vector3i, b: Vector3i) -> bool:
 	return true
 
 ## One chase step downhill on the field. False = boxed in (retry next cadence).
-func chase_step(m) -> bool:
+func chase_step(m: Monster) -> bool:
 	if flow.field.is_empty():
 		return false
-	var player: Node2D = sim.player
-	var best_d := 999999
+	var player: PlayerGrid = sim.player
+	var best_d := Constants.NO_PATH_DIST
 	var cands: Array = []
 	for dy in range(-1, 2):
 		for dx in range(-1, 2):

@@ -8,7 +8,9 @@ extends RefCounted
 ## kit matches web getOrCreate. Consumable effects live on the item row
 ## (content.json items.*.effect) — a new potion is a data row, no code.
 
-var sim  # CombatSim — wired by the sim at construction (untyped: no preload cycle)
+const Constants := preload("res://scripts/core/constants.gd")
+
+var sim: CombatSim  # wired by the sim at construction (global class, no cycle)
 
 ## Ground items: {id, grid:Vector3i, item_key, qty, owner, protected_until, born, jx, jy}
 var ground: Array = []
@@ -27,7 +29,7 @@ func set_auto_pickup(v: bool) -> void:
 	auto_pickup = v
 
 # ---------------------------------------------------------------- drops
-func drop_loot(m, owner: String, now: int) -> void:
+func drop_loot(m: Monster, owner: String, now: int) -> void:
 	var drops: Array = []
 	for entry in (m.def.get("loot", []) as Array):
 		if randf() < float(entry.get("chance", 0.0)):
@@ -84,19 +86,19 @@ func visible_ground() -> Array:
 	return ground.filter(func(g: Dictionary) -> bool: return is_visible_loot(g))
 
 func nearby_loot_count() -> int:
-	var player: Node2D = sim.player
+	var player: PlayerGrid = sim.player
 	var n := 0
 	for g in ground:
 		if not is_visible_loot(g) or int((g["grid"] as Vector3i).z) != int(player.grid.z):
 			continue
 		var cell: Vector3i = g["grid"]
-		if maxi(absi(cell.x - player.grid.x), absi(cell.y - player.grid.y)) <= 1:
+		if maxi(absi(cell.x - player.grid.x), absi(cell.y - player.grid.y)) <= Constants.LOOT_REACH_TILES:
 			n += 1
 	return n
 
 # ---------------------------------------------------------------- pickup
 func _take_ground(g: Dictionary, silent: bool) -> bool:
-	var player: Node2D = sim.player
+	var player: PlayerGrid = sim.player
 	if not can_loot(g):
 		if not silent:
 			var left: int = maxi(0, int((int(g.get("protected_until", 0)) - Time.get_ticks_msec()) / 1000))
@@ -117,8 +119,8 @@ func _take_ground(g: Dictionary, silent: bool) -> bool:
 
 ## Manual loot of one tile (tap). Must be within 1 tile, same floor.
 func loot_tile(x: int, y: int) -> void:
-	var player: Node2D = sim.player
-	if maxi(absi(x - player.grid.x), absi(y - player.grid.y)) > 1:
+	var player: PlayerGrid = sim.player
+	if maxi(absi(x - player.grid.x), absi(y - player.grid.y)) > Constants.LOOT_REACH_TILES:
 		return
 	var here := Vector3i(x, y, player.grid.z)
 	for g in ground.filter(func(d: Dictionary) -> bool: return (d["grid"] as Vector3i) == here and is_visible_loot(d)).duplicate():
@@ -126,13 +128,13 @@ func loot_tile(x: int, y: int) -> void:
 
 ## Sweep everything claimable and filtered within 1 tile, same floor.
 func loot_all_nearby() -> void:
-	var player: Node2D = sim.player
+	var player: PlayerGrid = sim.player
 	var pz: int = int(player.grid.z)
 	var near: Array = ground.filter(func(d: Dictionary) -> bool:
 		if not is_visible_loot(d) or int((d["grid"] as Vector3i).z) != pz:
 			return false
 		var cell: Vector3i = d["grid"]
-		return maxi(absi(cell.x - player.grid.x), absi(cell.y - player.grid.y)) <= 1)
+		return maxi(absi(cell.x - player.grid.x), absi(cell.y - player.grid.y)) <= Constants.LOOT_REACH_TILES)
 	if near.is_empty():
 		sim.add_float("nothing here", sim._v(player.grid) + Vector2(0, -0.4), Color(0.58, 0.64, 0.72), false)
 		return
@@ -172,7 +174,7 @@ func put_satchel(item_key: String, qty: int) -> void:
 	local_inventory[item_key] = int(local_inventory.get(item_key, 0)) + qty
 
 func equip(item_key: String) -> bool:
-	var player: Node2D = sim.player
+	var player: PlayerGrid = sim.player
 	var def: Dictionary = GameBalance.item_def(item_key)
 	var slot: String = String(def.get("slot", ""))
 	if slot == "":
@@ -198,7 +200,7 @@ func unequip(slot: String) -> bool:
 	return true
 
 func _recalc_gear() -> void:
-	var player: Node2D = sim.player
+	var player: PlayerGrid = sim.player
 	var armor := 0
 	var heavy := 0
 	var weapon := 0
@@ -229,7 +231,7 @@ func _consumable_label(item_key: String) -> String:
 
 ## Consumables root you for a content-tuned moment — drinking is a commitment.
 func use_consumable(item_key: String) -> bool:
-	var player: Node2D = sim.player
+	var player: PlayerGrid = sim.player
 	var fx: Dictionary = _consumable_fx(item_key)
 	if fx.is_empty():
 		return false
