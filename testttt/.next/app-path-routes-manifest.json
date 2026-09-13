@@ -1,0 +1,19 @@
+{
+  "/_global-error/page": "/_global-error",
+  "/_not-found/page": "/_not-found",
+  "/api/character/equipment/route": "/api/character/equipment",
+  "/api/character/route": "/api/character",
+  "/api/character/settings/route": "/api/character/settings",
+  "/api/character/sync/route": "/api/character/sync",
+  "/api/character/use/route": "/api/character/use",
+  "/api/content/route": "/api/content",
+  "/api/health/route": "/api/health",
+  "/api/market/buy/route": "/api/market/buy",
+  "/api/market/route": "/api/market",
+  "/api/world/route": "/api/world",
+  "/codex/page": "/codex",
+  "/market/page": "/market",
+  "/page": "/",
+  "/play/page": "/play",
+  "/world/page": "/world"
+}
