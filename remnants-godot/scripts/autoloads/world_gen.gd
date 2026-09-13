@@ -19,17 +19,8 @@ var crypt_h: int = 12
 var crypt_name := "Barrow Crypt"
 var crypt_spawns_arr: Array = [{"key": "wraith", "weight": 4}, {"key": "ember", "weight": 2}]
 
-const TILE_DEFS: Dictionary = {
-	"grass": {"walkable": true, "projectile_blocked": false},
-	"brush": {"walkable": true, "projectile_blocked": false},
-	"path": {"walkable": true, "projectile_blocked": false},
-	"ash": {"walkable": true, "projectile_blocked": false},
-	"stone": {"walkable": true, "projectile_blocked": false},
-	"water": {"walkable": false, "projectile_blocked": false},
-	"wall": {"walkable": false, "projectile_blocked": true},
-	"temple": {"walkable": true, "projectile_blocked": false},
-	"gate": {"walkable": true, "projectile_blocked": false},
-}
+## Tile rules (walkable / blocks projectile) live in WorldConfig.TILE_DEFS
+## (scripts/balance/world_config.gd) — one place for what a tile kind means.
 
 ## Region spawn tables come from content.json (world.REGIONS.spawns) — merged
 ## over these embedded fallbacks in _ready. Var, not const: _ready mutates.
@@ -120,13 +111,13 @@ func is_walkable(tiles: Array, x: int, y: int) -> bool:
 	var kind: String = kind_at(tiles, x, y)
 	if kind == "":
 		return false
-	return bool((TILE_DEFS[kind] as Dictionary).get("walkable", false))
+	return bool((GameBalance.world_cfg.TILE_DEFS[kind] as Dictionary).get("walkable", false))
 
 func blocks_projectile(tiles: Array, x: int, y: int) -> bool:
 	var kind: String = kind_at(tiles, x, y)
 	if kind == "":
 		return true
-	return bool((TILE_DEFS[kind] as Dictionary).get("projectile_blocked", false))
+	return bool((GameBalance.world_cfg.TILE_DEFS[kind] as Dictionary).get("projectile_blocked", false))
 
 ## Rift destination for a position, or Vector3i(-1,-1,-1) when not on a gate.
 func gate_dest(p: Vector3i) -> Vector3i:

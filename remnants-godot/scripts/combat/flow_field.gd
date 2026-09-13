@@ -1,12 +1,13 @@
 extends RefCounted
 ## FlowField — one shared BFS distance field from a target tile.
-## Extracted from CombatSim: static terrain only (walkable + not-PZ).
+## Owned by PathfindingSystem (scripts/combat/systems/pathfinding_system.gd):
+## static terrain only (walkable + not-PZ).
 ## Bodies (monsters, NPCs) MUST stay enqueued: the deaggro rule reads
 ## own-cell values, and a body-blocked field deaggros the whole map.
-## Separation happens at step time (CombatSim checks occupancy there).
+## Separation happens at step time (PathfindingSystem checks occupancy there).
 ##
 ## The field deliberately allows diagonals past wall corners (no corner-cut
-## rule): PlayerGrid._try_step and CombatSim._flow_step both do, so a
+## rule): PlayerGrid._try_step and PathfindingSystem.chase_step both do, so a
 ## corner-cut field marks corner-squeeze regions -1 and the deaggro rule
 ## drops aggro the frame it fires — creatures stop closing to attack and
 ## wander sideways instead (regression covered in tests/smoke_runner.gd).

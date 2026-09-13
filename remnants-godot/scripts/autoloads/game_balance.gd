@@ -1,75 +1,80 @@
 extends Node
-## GameBalance — autoload singleton.
+## GameBalance — autoload singleton and facade over the balance modules.
 ## Loads res://data/content.json exported from testttt/ (web single source of truth).
 ## Run `node scripts/export-content.mjs` in testttt/ after any balance change,
 ## then copy shared/content.json -> remnants-godot/data/content.json (script does it).
 ## Web owns the numbers. Godot owns the sim.
+##
+## Architecture: this autoload parses content.json once and hands each slice
+## to the module that owns it:
+##   combat_balance  formulas, cooldowns, abilities, vocations, skills
+##   item_db         item stats, equip slots, loot filter
+##   monster_db      creature defs + AI params (spawn tables: WorldConfig.WORLD)
+##   world_cfg       tile rules, floor settings, NPC fixtures
+## The public API is unchanged — every GameBalance.X read forwards below, so
+## sim/UI/test call sites never touch the modules directly.
 
+const CombatBalance := preload("res://scripts/balance/combat_balance.gd")
+const ItemDatabase := preload("res://scripts/balance/item_database.gd")
+const MonsterDatabase := preload("res://scripts/balance/monster_database.gd")
+const WorldConfig := preload("res://scripts/balance/world_config.gd")
+
+var combat_balance: CombatBalance
+var item_db: ItemDatabase
+var monster_db: MonsterDatabase
+var world_cfg: WorldConfig
+
+## Content version (bumped by the web export). Loader metadata, not balance.
 var VERSION: int = 0
-var ITEMS: Dictionary = {}
-var MONSTERS: Dictionary = {}
-var ABILITIES: Array = []
-var EQUIP_SLOTS: Array = []
-var COMBAT: Dictionary = {
-	"AUTO_ATTACK_MS": 2000,
-	"BASE_STEP_MS": 205,
-	"MS_PER_HEAVY": 5,
-	"MAX_STEP_PENALTY_MS": 90,
-	"MIN_DAMAGE": 1,
-	"PUSH_CD_MS": 2500,
-	"LOOT_PROTECT_MS": 60000,
-	"GROUND_DECAY_MS": 180000,
-	"STEP_MIN_MS": 120,
-	"STEP_DIAGONAL_MULT": 1.4,
-	"STEP_SLOW_MULT": 1.6,
-	"ROOT_MS": 1200,
-	"REGEN_MS": 1400,
-	"REGEN_HP_BASE": 1,
-	"REGEN_HP_DIV": 3,
-	"REGEN_MANA_BASE": 2,
-	"REGEN_MANA_DIV": 2,
-	"CRIT_CHANCE": 0.14,
-	"CRIT_MULT": 1.85,
-	"WARD_BASE": 45,
-	"WARD_PER_LEVEL": 5,
-	"WARD_PER_RANK": 10,
-	"WARD_MS": 6000,
-	"STATUS_MS": 6000,
-	"STATUS_TICK_MS": 1500,
-	"POISON_POWER": 4,
-	"BURN_POWER": 6,
-	"XP_LOSS_PCT": 0.1,
-	"GOLD_DROP_PCT": 0.5,
-	"RESPAWN_MS": 2600,
-	"MAX_MONSTERS": 34,
-	"CRYPT_MONSTERS": 8,
-	"RIVAL_MARK_CHANCE": 0.14,
-	"RIVAL_MARK_MIN": 0.3,
-	"RIVAL_MARK_SPREAD": 0.3,
-	"SENSE_JITTER": 1,
-	"SENSE_MIN": 2,
-	"SENSE_MAX": 9,
-	"DEAGGRO_TILES": 4,
-	"AGGRO_REACT_MS": 120,
-	"MOB_HEAL_MS": 1500,
-	"MOB_HEAL_DIV": 20,
-}
-var DEFAULT_LOOT_FILTER: Array = []
-var ALL_ITEM_KEYS: Array = []
-var RIVALS: Array = []
-var NPCS: Array = []
-var NPC_STOCK: Array = []
-var FERRY: Array = []
-var NPC_TALK_RANGE := 2
-var NPC_HEAL_COST := 30
-var NPC_FERRY_COST := 10
-var NPC_SELL_PCT := 0.5
+
+# --- facade over the modules (signatures unchanged; forwarders only) --------
+var ITEMS: Dictionary:
+	get: return item_db.ITEMS
+var MONSTERS: Dictionary:
+	get: return monster_db.MONSTERS
+var ABILITIES: Array:
+	get: return combat_balance.ABILITIES
+var EQUIP_SLOTS: Array:
+	get: return item_db.EQUIP_SLOTS
+var COMBAT: Dictionary:
+	get: return combat_balance.COMBAT
+var DEFAULT_LOOT_FILTER: Array:
+	get: return item_db.DEFAULT_LOOT_FILTER
+var ALL_ITEM_KEYS: Array:
+	get: return item_db.ALL_ITEM_KEYS
+var RIVALS: Array:
+	get: return monster_db.RIVALS
+var NPCS: Array:
+	get: return world_cfg.NPCS
+var NPC_STOCK: Array:
+	get: return world_cfg.NPC_STOCK
+var FERRY: Array:
+	get: return world_cfg.FERRY
+var NPC_TALK_RANGE := 2:
+	get: return world_cfg.NPC_TALK_RANGE
+var NPC_HEAL_COST := 30:
+	get: return world_cfg.NPC_HEAL_COST
+var NPC_FERRY_COST := 10:
+	get: return world_cfg.NPC_FERRY_COST
+var NPC_SELL_PCT := 0.5:
+	get: return world_cfg.NPC_SELL_PCT
 ## Raw world block from content.json (REGIONS spawns, CRYPT config).
-var WORLD: Dictionary = {}
-var VOCATION_ORDER: Array = []
-var VOCATIONS: Dictionary = {}
-var SKILL_ORDER: Array = []
-var SKILLS: Dictionary = {}
+var WORLD: Dictionary:
+	get: return world_cfg.WORLD
+var VOCATION_ORDER: Array:
+	get: return combat_balance.VOCATION_ORDER
+var VOCATIONS: Dictionary:
+	get: return combat_balance.VOCATIONS
+var SKILL_ORDER: Array:
+	get: return combat_balance.SKILL_ORDER
+var SKILLS: Dictionary:
+	get: return combat_balance.SKILLS
+
+func _init() -> void:
+	combat_balance = CombatBalance.new()
+	item_db = ItemDatabase.new()
+	monster_db = MonsterDatabase.new()
+	world_cfg = WorldConfig.new()
 
 func _ready() -> void:
 	load_balance()
@@ -87,83 +92,38 @@ func load_balance(path: String = "res://data/content.json") -> bool:
 		push_error("[GameBalance] content.json is not a Dictionary")
 		return false
 	VERSION = int(parsed.get("version", 0))
-	ITEMS = parsed.get("items", {})
-	MONSTERS = parsed.get("monsters", {})
-	ABILITIES = parsed.get("abilities", [])
-	EQUIP_SLOTS = parsed.get("equipSlots", [])
-	DEFAULT_LOOT_FILTER = parsed.get("defaultLootFilter", [])
-	ALL_ITEM_KEYS = parsed.get("allItemKeys", [])
-	RIVALS = parsed.get("rivals", [])
-	NPCS = parsed.get("npcs", [])
-	NPC_STOCK = parsed.get("npcStock", [])
-	FERRY = parsed.get("ferry", [])
-	NPC_TALK_RANGE = int(parsed.get("npcTalkRange", 2))
-	NPC_HEAL_COST = int(parsed.get("npcHealCost", 30))
-	NPC_FERRY_COST = int(parsed.get("npcFerryCost", 10))
-	NPC_SELL_PCT = float(parsed.get("npcSellPct", 0.5))
-	WORLD = parsed.get("world", {})
-	VOCATION_ORDER = parsed.get("vocationOrder", [])
-	# Normalize TS camelCase to GDScript snake_case once, at the boundary.
-	VOCATIONS = {}
-	for vkey in (parsed.get("vocations", {}) as Dictionary).keys():
-		var v: Dictionary = (parsed["vocations"] as Dictionary)[vkey]
-		VOCATIONS[String(vkey)] = {
-			"key": String(vkey),
-			"name": String(v.get("name", vkey)),
-			"blurb": String(v.get("blurb", "")),
-			"hp_mult": float(v.get("hpMult", 1.0)),
-			"mana_mult": float(v.get("manaMult", 1.0)),
-			"tick_range": int(v.get("tickRange", 1)),
-			"tick_base": int(v.get("tickBase", 6)),
-			"tick_scale": float(v.get("tickScale", 0.9)),
-			"tick_shot": bool(v.get("tickShot", false)),
-			"melee_mult": float(v.get("meleeMult", 1.0)),
-			"spell_mult": float(v.get("spellMult", 1.0)),
-		}
-	SKILL_ORDER = parsed.get("skillOrder", [])
-	SKILLS = parsed.get("skills", {})
-	var bal: Dictionary = parsed.get("balance", {})
-	if bal.has("COMBAT"):
-		for k in (bal["COMBAT"] as Dictionary).keys():
-			COMBAT[k] = (bal["COMBAT"] as Dictionary)[k]
-	print("[GameBalance] v%d items=%d monsters=%d abilities=%d" % [VERSION, ITEMS.size(), MONSTERS.size(), ABILITIES.size()])
+	combat_balance.load_content(parsed)
+	item_db.load_content(parsed)
+	monster_db.load_content(parsed)
+	world_cfg.load_content(parsed)
+	print("[GameBalance] v%d items=%d monsters=%d abilities=%d" % [VERSION, item_db.ITEMS.size(), monster_db.MONSTERS.size(), combat_balance.ABILITIES.size()])
 	return true
 
-# --- formulas, 1:1 with testttt/src/lib/game/content.ts ---
+# --- formulas, 1:1 with testttt/src/lib/game/content.ts (CombatBalance) -----
 
 func mitigate(raw: int, armor: int) -> int:
-	return maxi(int(COMBAT.get("MIN_DAMAGE", 1)), raw - armor)
+	return combat_balance.mitigate(raw, armor)
 
 func xp_for_level(level: int) -> int:
-	return int(floor(60.0 * pow(float(level), 1.85)))
+	return combat_balance.xp_for_level(level)
 
 func level_from_xp(xp: int) -> int:
-	var lvl := 1
-	while lvl < 60 and xp >= xp_for_level(lvl):
-		lvl += 1
-	return lvl
+	return combat_balance.level_from_xp(xp)
 
 func stats_for_level(level: int) -> Dictionary:
-	return {
-		"maxHp": 100 + level * 20,
-		"maxMana": 45 + level * 15,
-		"damageBonus": int(floor(float(level) * 1.6)),
-	}
+	return combat_balance.stats_for_level(level)
 
 func step_ms_for(heavy: int) -> int:
-	var base := int(COMBAT.get("BASE_STEP_MS", 205))
-	var per := int(COMBAT.get("MS_PER_HEAVY", 5))
-	var cap := int(COMBAT.get("MAX_STEP_PENALTY_MS", 90))
-	return base + mini(cap, heavy * per)
+	return combat_balance.step_ms_for(heavy)
 
 func auto_attack_ms() -> int:
-	return int(COMBAT.get("AUTO_ATTACK_MS", 2000))
+	return combat_balance.auto_attack_ms()
 
 func item_def(key: String) -> Dictionary:
-	return ITEMS.get(key, {})
+	return item_db.item_def(key)
 
 func monster_def(key: String) -> Dictionary:
-	return MONSTERS.get(key, {})
+	return monster_db.monster_def(key)
 
 func skill_def(key: String) -> Dictionary:
-	return (SKILLS as Dictionary).get(key, {})
+	return (combat_balance.SKILLS as Dictionary).get(key, {})

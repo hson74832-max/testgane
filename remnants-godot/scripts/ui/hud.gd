@@ -205,7 +205,7 @@ func _build() -> void:
 	_stick.set("knob_r", 32.0 * S)
 	_stick.set("dead_px", 18.0 * S)
 	_stick.moved.connect(func(v: Vector2) -> void:
-		player.set_joystick(v)
+		world.input_mgr.set_stick(v)
 		if v.length() > 0.05:
 			world.mark_input()
 	)

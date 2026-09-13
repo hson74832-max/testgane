@@ -1,10 +1,17 @@
 extends Node2D
-## WorldView — Phase 2 + mobile HUD. Owns map + PlayerGrid + CombatSim + Hud.
+## WorldView — Phase 2 + mobile HUD. Owns map + PlayerGrid + CombatSim + Hud,
+## and delegates the three big concerns to extracted modules:
+##   renderer      — all _draw() logic: windowed floor tiles (row-run batched),
+##                   temple ring, gate pulses   (scripts/world/renderer.gd)
+##   input_mgr     — normalizes keys/mouse/touch/gamepad into one GameAction
+##                   stream this node reacts to (scripts/world/input_manager.gd)
+##   camera_ctl    — camera smoothing, snap-after-jump, visible bounds
+##                   (scripts/world/camera_controller.gd)
 ## Input parity with web GamePlay.tsx: WASD move, click/tap mark,
 ## hold-drag from monster = shove preview + release to push,
 ## Space/1/Strike-pad = Strike, Tab/T/Mark-pad = cycle mark.
 ## Left-half touch = same stick (invisible region kept for parity), plus the
-## visible VirtualJoystick which feeds the same PlayerGrid input.
+## visible VirtualJoystick which feeds the same stick action.
 
 const PlayerGridScript := preload("res://scripts/player/player_grid.gd")
 const CombatSimScript := preload("res://scripts/combat/combat_sim.gd")
@@ -12,6 +19,9 @@ const HudScript := preload("res://scripts/ui/hud.gd")
 const DebugOverlayScript := preload("res://scripts/ui/debug_overlay.gd")
 const WebSyncScript := preload("res://scripts/net/web_sync.gd")
 const NpcsScript := preload("res://scripts/world/npcs.gd")
+const RendererScript := preload("res://scripts/world/renderer.gd")
+const InputManagerScript := preload("res://scripts/world/input_manager.gd")
+const CameraControllerScript := preload("res://scripts/world/camera_controller.gd")
 
 var tiles: Array = []
 var floor_maps: Dictionary = {}
@@ -20,26 +30,24 @@ var sim: Node2D
 var npcs: Node2D
 var hud: CanvasLayer
 var debug_overlay: CanvasLayer
-var camera: Camera2D
 var seed_value: int = 1337
 var last_input_msec: int = 0
+
+# --- extracted modules ---
+var renderer: RendererScript
+var input_mgr: InputManagerScript
+var camera_ctl: CameraControllerScript
+
+## Camera node lives in the controller; forwarded for HUD/tests that aim it.
+var camera: Camera2D:
+	get: return camera_ctl.camera
+
 # --- WebSync live push (dev only, env-gated: REMNANTS_SYNC=1, REMNANTS_WEB=url) ---
 var websync = null
 var _loot_queue: Array = []
 var _event_queue: Array = []
 var _pending_death := {}
 var _greeted := {}
-
-# touch joystick state (left-half drag, invisible parity region)
-var _touch_origin: Vector2 = Vector2.ZERO
-var _touch_active: bool = false
-var _touch_id: int = -1
-# shove gesture (mouse + right-half touch share this shape)
-var _press_tile: Vector2i = Vector2i(-999, -999)
-var _press_monster: int = -1  # mid or -1
-var _press_self := false  # drag started on the player's own tile: self-shove
-var _dragging_shove: bool = false
-var _touch_shove_id: int = -1
 
 func _ready() -> void:
 	last_input_msec = Time.get_ticks_msec()
@@ -74,12 +82,15 @@ func _ready() -> void:
 	sim.toast.connect(_on_toast)
 	sim.looted.connect(_on_loot_chat)
 
-	camera = Camera2D.new()
-	camera.position_smoothing_enabled = true
-	camera.position_smoothing_speed = 8.0
-	add_child(camera)
-	camera.make_current()
-	camera.position = player.position
+	renderer = RendererScript.new()
+	renderer.world = self
+	camera_ctl = CameraControllerScript.new()
+	camera_ctl.world = self
+	camera_ctl.setup(self, player)
+	input_mgr = InputManagerScript.new()
+	add_child(input_mgr)
+	input_mgr.setup(self, player, sim)
+	input_mgr.game_action.connect(_on_game_action)
 
 	hud = HudScript.new()
 	add_child(hud)
@@ -107,13 +118,8 @@ func _ready() -> void:
 		add_child(load("res://tests/smoke_runner.gd").new())
 
 func _process(_delta: float) -> void:
-	if is_instance_valid(camera) and is_instance_valid(player):
-		# rifts, ferries and respawns jump floors: snap instead of gliding.
-		if camera.position.distance_to(player.position) > 8.0 * float(WorldGen.TILE_PX):
-			camera.position = player.position
-			camera.reset_smoothing()
-		else:
-			camera.position = player.position
+	if is_instance_valid(player):
+		camera_ctl.follow(player.position)
 	if is_instance_valid(sim) and is_instance_valid(player):
 		# follow the player across floors (rift gates, ferry, respawn)
 		tiles = sim.current_tiles()
@@ -126,6 +132,10 @@ func _process(_delta: float) -> void:
 	# or the camera slides onto never-drawn canvas (black tiles). Regression
 	# from the Phase 2 rewrite, which dropped the stepped->redraw wiring.
 	queue_redraw()
+
+## Visible tile bounds (INCLUSIVE end), shared by culling and mark clipping.
+func _visible_tiles() -> Rect2i:
+	return camera_ctl.visible_tiles(tiles)
 
 ## Combined occupancy: live monsters (sim) + NPC fixtures, current floor.
 func _is_blocked(x: int, y: int) -> bool:
@@ -171,7 +181,7 @@ func _on_loot_chat(item_key: String, qty: int) -> void:
 	if rarity == "rare" or rarity == "epic":
 		notify("Looted %s%s." % [String(GameBalance.item_def(item_key).get("name", item_key)), (" x%d" % qty) if qty > 1 else ""])
 
-# ---- pads / keys -----------------------------------------------------------
+# ---- pads / keys (same handlers feed the HUD pads and the action stream) ---
 func on_strike_pad() -> void:
 	mark_input()
 	sim.ability_strike()
@@ -197,6 +207,71 @@ func on_loot_pad() -> void:
 	sim.loot_all_nearby()
 	buzz(12)
 
+func on_mark_pad() -> void:
+	mark_input()
+	sim.cycle_target()
+	buzz(10)
+
+# ---- GameAction stream -------------------------------------------------------
+## One consumer for everything InputManager normalizes (keys, mouse, touch,
+## gamepad, virtual stick). HUD pads call the same on_*_pad handlers.
+func _on_game_action(action: String, data: Dictionary) -> void:
+	match action:
+		InputManagerScript.ACTION_STRIKE:
+			on_strike_pad()
+		InputManagerScript.ACTION_CLEAVE:
+			on_cleave_pad()
+		InputManagerScript.ACTION_BOLT:
+			on_bolt_pad()
+		InputManagerScript.ACTION_WARD:
+			on_ward_pad()
+		InputManagerScript.ACTION_LOOT:
+			on_loot_pad()
+		InputManagerScript.ACTION_CYCLE_MARK:
+			on_mark_pad()
+		InputManagerScript.ACTION_TOGGLE_DEBUG:
+			debug_overlay.toggle()
+		InputManagerScript.ACTION_TOGGLE_CHAT:
+			hud.toggle_chat_input()
+		InputManagerScript.ACTION_STICK:
+			player.set_joystick(data["vec"])
+		InputManagerScript.ACTION_SHOVE_PREVIEW:
+			if int(data["mid"]) >= 0:
+				var tile: Vector2i = data["to"]
+				sim.preview_push(_monster_by_id(int(data["mid"])), tile.x, tile.y)
+			else:
+				var tile_s: Vector2i = data["to"]
+				sim.preview_push_self(tile_s.x, tile_s.y)
+		InputManagerScript.ACTION_SHOVE:
+			sim.clear_push_preview()
+			var to: Vector2i = data["to"]
+			var r: Dictionary = sim.push(_monster_by_id(int(data["mid"])), to.x, to.y)
+			if bool(r.get("ok", false)):
+				buzz(25)
+		InputManagerScript.ACTION_SHOVE_SELF:
+			sim.clear_push_preview()
+			var to_s: Vector2i = data["to"]
+			var rs: Dictionary = sim.push_self(to_s.x, to_s.y)
+			if bool(rs.get("ok", false)):
+				buzz(25)
+		InputManagerScript.ACTION_TAP:
+			sim.clear_push_preview()
+			var tile_t: Vector2i = data["tile"]
+			# NPCs first (their tile may hold loot underneath), then mark/loot.
+			var npc = npcs.npc_at(tile_t.x, tile_t.y, int(player.grid.z))
+			if npc != null:
+				interact_npc(npc)
+			else:
+				sim.tap_tile(tile_t.x, tile_t.y)
+				buzz(8)
+
+func _monster_by_id(mid: int):
+	for m in (sim.get("monsters") as Array):
+		if int(m.get("mid")) == mid and int(m.get("dying_at")) == 0:
+			return m
+	return null
+
+# ---- websync ----------------------------------------------------------------
 func _on_looted(item_key: String, qty: int) -> void:
 	_loot_queue.append({"itemKey": item_key, "qty": qty})
 	if _loot_queue.size() > 50:
@@ -226,11 +301,7 @@ func _push_sync() -> void:
 		_pending_death = {}
 	websync.push_state(_player_state(), loot, death, events.slice(0, 20))
 
-func on_mark_pad() -> void:
-	mark_input()
-	sim.cycle_target()
-	buzz(10)
-
+# ---- sim events ---------------------------------------------------------------
 func _on_leveled(level: int) -> void:
 	hud.show_toast("LEVEL %d" % level)
 	notify("Level %d reached." % level)
@@ -251,192 +322,6 @@ func _on_died(killed_by: String, xp_lost: int, gold: int) -> void:
 func _on_toast(text: String, _kind: String) -> void:
 	hud.show_toast(text)
 
-# ---- input -----------------------------------------------------------------
-func _unhandled_key_input(event: InputEvent) -> void:
-	var k: InputEventKey = event as InputEventKey
-	if k == null or not k.pressed or k.echo:
-		return
-	mark_input()
-	match k.physical_keycode:
-		KEY_SPACE, KEY_1:
-			sim.ability_strike()
-			buzz(15)
-		KEY_2:
-			sim.ability_cleave()
-			buzz(16)
-		KEY_3:
-			sim.ability_bolt()
-			buzz(16)
-		KEY_4:
-			sim.ability_ward()
-			buzz(20)
-		KEY_G:
-			sim.loot_all_nearby()
-			buzz(12)
-		KEY_TAB, KEY_T:
-			sim.cycle_target()
-			buzz(10)
-		KEY_F3:
-			debug_overlay.toggle()
-		KEY_ENTER, KEY_KP_ENTER:
-			hud.toggle_chat_input()
-
-func _tile_from_screen(screen_pos: Vector2) -> Vector2i:
-	var world: Vector2 = get_canvas_transform().affine_inverse() * screen_pos
-	var t := float(WorldGen.TILE_PX)
-	return Vector2i(int(floor(world.x / t)), int(floor(world.y / t)))
-
-func _monster_id_at(tile: Vector2i) -> int:
-	var m = sim.monster_at(tile.x, tile.y)
-	return int(m.get("mid")) if m != null else -1
-
-func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventKey:
-		return  # handled in _unhandled_key_input
-	mark_input()
-	if event is InputEventScreenTouch:
-		var t: InputEventScreenTouch = event
-		var vp: Vector2 = get_viewport_rect().size
-		if t.pressed and t.position.x < vp.x * 0.45 and not _touch_active and _touch_shove_id < 0:
-			_touch_active = true
-			_touch_id = t.index
-			_touch_origin = t.position
-		elif t.pressed and t.position.x >= vp.x * 0.45:
-			var tile := _tile_from_screen(t.position)
-			var pg := player.get("grid") as Vector3i
-			_press_tile = tile
-			_press_monster = _monster_id_at(tile)
-			_press_self = tile.x == pg.x and tile.y == pg.y
-			_touch_shove_id = t.index
-			_dragging_shove = false
-		elif not t.pressed and t.index == _touch_id:
-			_touch_active = false
-			player.set_joystick(Vector2.ZERO)
-		elif not t.pressed and t.index == _touch_shove_id:
-			_touch_shove_id = -1
-			_finish_shove_gesture(_tile_from_screen(t.position))
-	elif event is InputEventScreenDrag:
-		var d: InputEventScreenDrag = event
-		if _touch_active and d.index == _touch_id:
-			player.set_joystick((d.position - _touch_origin) / 52.0)
-		elif d.index == _touch_shove_id and _press_monster >= 0:
-			var tile2 := _tile_from_screen(d.position)
-			if tile2 != _press_tile:
-				_dragging_shove = true
-				sim.preview_push(_monster_by_id(_press_monster), tile2.x, tile2.y)
-		elif d.index == _touch_shove_id and _press_self:
-			var tile2s := _tile_from_screen(d.position)
-			if tile2s != _press_tile:
-				_dragging_shove = true
-				sim.preview_push_self(tile2s.x, tile2s.y)
-	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
-		var mb: InputEventMouseButton = event
-		if mb.pressed:
-			var tile3 := _tile_from_screen(mb.position)
-			var pgm := player.get("grid") as Vector3i
-			_press_tile = tile3
-			_press_monster = _monster_id_at(tile3)
-			_press_self = tile3.x == pgm.x and tile3.y == pgm.y
-			_dragging_shove = false
-		else:
-			_finish_shove_gesture(_tile_from_screen(mb.position))
-	elif event is InputEventMouseMotion and _press_monster >= 0:
-		var mm: InputEventMouseMotion = event
-		if (mm.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
-			var tile4 := _tile_from_screen(mm.position)
-			if tile4 != _press_tile:
-				_dragging_shove = true
-				sim.preview_push(_monster_by_id(_press_monster), tile4.x, tile4.y)
-	elif event is InputEventMouseMotion and _press_self:
-		var ms: InputEventMouseMotion = event
-		if (ms.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
-			var tile5 := _tile_from_screen(ms.position)
-			if tile5 != _press_tile:
-				_dragging_shove = true
-				sim.preview_push_self(tile5.x, tile5.y)
-
-func _monster_by_id(mid: int):
-	for m in (sim.get("monsters") as Array):
-		if int(m.get("mid")) == mid and int(m.get("dying_at")) == 0:
-			return m
-	return null
-
-func _finish_shove_gesture(release: Vector2i) -> void:
-	var m = _monster_by_id(_press_monster) if _press_monster >= 0 else null
-	sim.clear_push_preview()
-	if m != null and _dragging_shove and release != _press_tile:
-		var r: Dictionary = sim.push(m, release.x, release.y)
-		if bool(r.get("ok", false)):
-			buzz(25)
-	elif _press_self and _dragging_shove and release != _press_tile:
-		# drag from your own tile: shove yourself one tile (never across NPCs)
-		var rs: Dictionary = sim.push_self(release.x, release.y)
-		if bool(rs.get("ok", false)):
-			buzz(25)
-	else:
-		# NPCs first (their tile may hold loot underneath), then mark/loot.
-		var npc = npcs.npc_at(_press_tile.x, _press_tile.y, int(player.grid.z))
-		if npc != null:
-			interact_npc(npc)
-		else:
-			sim.tap_tile(_press_tile.x, _press_tile.y)
-			buzz(8)
-	_press_tile = Vector2i(-999, -999)
-	_press_monster = -1
-	_press_self = false
-	_dragging_shove = false
-
-# ---- floor -----------------------------------------------------------------
-## Visible tile bounds (INCLUSIVE end), shared by culling and mark clipping.
-func _visible_tiles() -> Rect2i:
-	var t := float(WorldGen.TILE_PX)
-	var w: int = int((tiles[0] as Array).size()) if not tiles.is_empty() else 0
-	var h: int = tiles.size()
-	if not is_instance_valid(camera) or w <= 0 or h <= 0:
-		return Rect2i(0, 0, mini(24, w), mini(24, h))
-	var view: Vector2 = get_viewport_rect().size / maxf(0.01, camera.zoom.x)
-	var tl: Vector2 = camera.get_screen_center_position() / t - view / t / 2.0 - Vector2(1, 1)
-	var br: Vector2 = tl + view / t + Vector2(2, 2)
-	var x0: int = maxi(0, int(tl.x))
-	var y0: int = maxi(0, int(tl.y))
-	return Rect2i(x0, y0, maxi(0, mini(w - 1, int(br.x)) - x0), maxi(0, mini(h - 1, int(br.y)) - y0))
-
+# ---- draw ---------------------------------------------------------------------
 func _draw() -> void:
-	if tiles.is_empty():
-		return
-	var t := float(WorldGen.TILE_PX)
-	var vis := _visible_tiles()
-	for y in range(vis.position.y, vis.position.y + vis.size.y + 1):
-		for x in range(vis.position.x, vis.position.x + vis.size.x + 1):
-			_draw_tile(x, y, t)
-	if int(player.grid.z) == 0:
-		var c := Vector2(WorldGen.TEMPLE) * t + Vector2(t, t) / 2.0
-		var pts := PackedVector2Array()
-		for i in range(48):
-			var a0: float = TAU * float(i) / 48.0
-			pts.append(c + Vector2(cos(a0), sin(a0)) * t * 3.5)
-		draw_polyline(pts + PackedVector2Array([pts[0]]), Color(1.0, 0.88, 0.51, 0.6), 3.0)
-
-func _draw_tile(x: int, y: int, t: float) -> void:
-	var kind: String = tiles[y][x]
-	if kind == "wall":
-		draw_rect(Rect2(Vector2(x, y) * t, Vector2(t, t)), Color(0.35, 0.33, 0.30))
-		draw_rect(Rect2(Vector2(x, y) * t + Vector2(2, -t * 0.2), Vector2(t - 4, t * 0.72)), Color(0.55, 0.52, 0.47))
-		return
-	var top := Color(0.25, 0.49, 0.31)
-	match kind:
-		"brush": top = Color(0.21, 0.42, 0.27)
-		"path": top = Color(0.63, 0.54, 0.39)
-		"ash": top = Color(0.36, 0.33, 0.38)
-		"stone": top = Color(0.44, 0.45, 0.50)
-		"water": top = Color(0.18, 0.50, 0.71)
-		"temple": top = Color(0.79, 0.70, 0.48)
-		"gate": top = Color(0.35, 0.2, 0.5)
-	var pos := Vector2(x, y) * t
-	draw_rect(Rect2(pos + Vector2(1, 3), Vector2(t - 2, t - 3)), top.darkened(0.35))
-	draw_rect(Rect2(pos + Vector2(1, 1), Vector2(t - 2, t - 5)), top)
-	if kind == "gate":
-		var c := pos + Vector2(t, t) / 2.0
-		var pulse: float = 0.6 + 0.4 * sin(Time.get_ticks_msec() / 400.0)
-		draw_arc(c, t * 0.3 * pulse, 0.0, TAU, 24, Color(0.85, 0.6, 1.0), 3.0)
-		draw_circle(c, t * 0.08, Color(1, 1, 1, 0.9))
+	renderer.draw(self)

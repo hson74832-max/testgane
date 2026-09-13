@@ -1,6 +1,7 @@
 class_name Monster
 extends Node2D
-## Data + view for one creature. Logic lives in CombatSim.
+## Data + view for one creature. Logic lives in the combat systems
+## (scripts/combat/systems/): AISystem drives behavior, CombatSystem damage.
 ## Mirrors engine.ts Monster fields (trimmed: no mob statuses in Phase 2).
 
 var mid: int = 0
@@ -28,7 +29,7 @@ var sense: int = 4
 ## Last player cell this creature aimed at. Ranged types reposition when the
 ## target sidesteps instead of recasting at stale ground.
 var last_seen := Vector3i(-999, -999, -999)
-## Set by CombatSim each tick: marked, within 3 tiles, (or damaged below).
+## Set by AISystem each tick: marked, within 3 tiles, (or damaged below).
 var show_bar := false
 
 func setup(p_mid: int, p_key: String, p_def: Dictionary, p_grid: Vector3i, p_hp: int, p_damage_by: Dictionary) -> void:
