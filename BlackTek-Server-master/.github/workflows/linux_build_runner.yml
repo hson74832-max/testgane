@@ -1,0 +1,259 @@
+name: Linux Build
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Build type'
+        required: true
+        default: 'edge'
+        type: choice
+        options:
+          - edge
+          - release
+      version:
+        description: 'Version tag (only for release type, e.g., v1.0.0)'
+        required: false
+        type: string
+  pull_request:
+  push:
+    branches:
+      - master
+      - main
+    tags:
+      - 'v[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+-*'
+
+jobs:
+  linux_build:
+    runs-on: ubuntu-24.04
+    permissions:
+      packages: write
+      contents: write
+    steps:
+    - name: Set up Git
+      uses: actions/checkout@v4
+
+    - name: Install GCC 15
+      run: |
+        sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y
+        sudo apt-get update
+        sudo apt-get install -y gcc-15 g++-15 libstdc++-15-dev
+        sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-15 100 --slave /usr/bin/g++ g++ /usr/bin/g++-15
+        sudo update-alternatives --set gcc /usr/bin/gcc-15
+        echo "CC=gcc-15" >> $GITHUB_ENV
+        echo "CXX=g++-15" >> $GITHUB_ENV
+    
+    - name: Restore vcpkg cache
+      uses: actions/cache@v3
+      with:
+        path: |
+          /usr/local/share/vcpkg/installed
+          /usr/local/share/vcpkg/downloads
+          /usr/local/share/vcpkg/buildtrees
+          ${{ github.workspace }}/vcpkg_installed
+        key: vcpkg-ubuntu-24.04-${{ hashFiles('**/vcpkg.json', '**/vcpkg-configuration.json') }}-v3
+        restore-keys: |
+          vcpkg-ubuntu-24.04-v3-
+    
+    - name: Install Uuid
+      run: |
+        if ! pkg-config --exists uuid; then
+          echo "libuuid is not installed. Installing it..."
+          sudo apt-get update
+          sudo apt-get install -y uuid-dev
+        else
+          echo "libuuid is already installed."
+        fi
+    
+    - name: Setup Premake
+      run: |
+        git clone https://github.com/premake/premake-core
+        cd premake-core
+        make -f Bootstrap.mak linux
+        cd ..
+        ./premake-core/bin/release/premake5 gmake
+    
+    - name: Setup vcpkg environment
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # Set environment variables for vcpkg
+        echo "VCPKG_MAX_CONCURRENCY=2" >> $GITHUB_ENV
+        echo "VCPKG_KEEP_ENV_VARS=GITHUB_TOKEN" >> $GITHUB_ENV
+    
+    - name: Install Vcpkg Libraries
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        set -e  # Exit on error
+        
+        # Update vcpkg
+        git -C /usr/local/share/vcpkg reset --hard HEAD
+        git -C /usr/local/share/vcpkg clean -fd
+        git -C /usr/local/share/vcpkg pull
+        /usr/local/share/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+
+        # Install with retry logic
+        max_attempts=3
+        attempt=1
+        
+        while [ $attempt -le $max_attempts ]; do
+          echo "Installation attempt $attempt of $max_attempts"
+
+          if vcpkg install; then
+            echo "Installation successful!"
+            exit 0
+          else
+            echo "Attempt $attempt failed"
+            if [ $attempt -lt $max_attempts ]; then
+              wait_time=$((2 ** attempt * 30))
+              echo "Waiting $wait_time seconds before retry..."
+              sleep $wait_time
+            fi
+            attempt=$((attempt + 1))
+          fi
+        done
+        
+        echo "Failed to install dependencies after $max_attempts attempts"
+        exit 1
+    
+    - name: Compile Release 64
+      run: |
+        make -j $(nproc) config=release_64 CC=gcc-15 CXX=g++-15
+        cp Black-Tek-Server BlackTek-Server-Release
+
+    - name: Compile Debug 64
+      run: |
+        make -j $(nproc) config=debug_64 CC=gcc-15 CXX=g++-15
+        cp Black-Tek-Server BlackTek-Server-Debug
+        rm Black-Tek-Server
+    
+    - name: Cleanup Vcpkg_installed
+      uses: JesseTG/rm@v1.0.3
+      with:
+        path: ${{ github.workspace }}/vcpkg_installed
+    
+    - name: Cleanup Intermediaries
+      uses: JesseTG/rm@v1.0.3
+      with:
+        path: ${{ github.workspace }}/build
+    
+    - name: Cleanup Premake-Core
+      uses: JesseTG/rm@v1.0.3
+      with:
+        path: ${{ github.workspace }}/premake-core
+    
+    # Determine if this is a release build
+    - name: Determine Release Type
+      id: release_type
+      run: |
+        IS_RELEASE="false"
+        VERSION=""
+        
+        # Check if triggered by tag push
+        if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+          IS_RELEASE="true"
+          VERSION="${{ github.ref_name }}"
+          echo "Detected tag push: $VERSION"
+        fi
+        
+        # Check if workflow_dispatch with release type
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.release_type }}" == "release" ]]; then
+          IS_RELEASE="true"
+          VERSION="${{ github.event.inputs.version }}"
+          if [[ -z "$VERSION" ]]; then
+            echo "Error: Version is required for release builds"
+            exit 1
+          fi
+          echo "Manual release triggered: $VERSION"
+        fi
+        
+        echo "is_release=$IS_RELEASE" >> $GITHUB_OUTPUT
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Release build: $IS_RELEASE, Version: $VERSION"
+    
+    - name: Prepare Compressed Assets (Edge Build)
+      if: steps.release_type.outputs.is_release != 'true'
+      run: |
+        echo "Commit SHA: ${{ github.sha }}" > version.info
+        echo "Build Date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> version.info
+        echo "OS: ubuntu-24.04" >> version.info
+        zip -r BlackTek-Server-ubuntu-24.04-${{ github.sha }}.zip ${{ github.workspace }}
+    
+    - name: Prepare Compressed Assets (Release Build)
+      if: steps.release_type.outputs.is_release == 'true'
+      run: |
+        VERSION="${{ steps.release_type.outputs.version }}"
+        echo "Version: $VERSION" > version.info
+        echo "Commit SHA: ${{ github.sha }}" >> version.info
+        echo "Build Date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> version.info
+        echo "OS: ubuntu-24.04" >> version.info
+        zip -r BlackTek-Server-Linux-ubuntu-24.04-${VERSION}.zip ${{ github.workspace }}
+    
+    - name: Cleanup Old Release Assets
+      if: (github.event_name == 'push') && !startsWith(github.ref, 'refs/tags/') || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+      run: |
+        # GH CLI is already installed on GitHub runners
+        echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+        # Get the list of assets from the edge release
+        ASSETS=$(gh release view Linux-Edge-Build --json assets -q '.assets[].name' | grep "BlackTek-Server-" | sort)
+        # Keep only the X most recent assets
+        KEEP_COUNT=25
+        TOTAL_COUNT=$(echo "$ASSETS" | wc -l)
+        if [ $TOTAL_COUNT -gt $KEEP_COUNT ]; then
+          DELETE_COUNT=$((TOTAL_COUNT - KEEP_COUNT))
+          ASSETS_TO_DELETE=$(echo "$ASSETS" | head -n $DELETE_COUNT)
+          echo "Found $TOTAL_COUNT assets, keeping $KEEP_COUNT, deleting $DELETE_COUNT"
+          for ASSET in $ASSETS_TO_DELETE; do
+            echo "Deleting asset: $ASSET"
+            gh release delete-asset Linux-Edge-Build "$ASSET" --yes
+          done
+        else
+          echo "Only $TOTAL_COUNT assets found, no cleanup needed (keeping up to $KEEP_COUNT)"
+        fi
+    
+    - name: Upload Assets for Edge Build
+      if: |
+        steps.release_type.outputs.is_release != 'true' &&
+        ((github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')) ||
+         (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||
+         (github.event_name == 'workflow_dispatch' && github.event.inputs.release_type == 'edge'))
+      uses: softprops/action-gh-release@v2
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        prerelease: true
+        tag_name: Linux-Edge-Build
+        name: BlackTek Server Edge Build
+        body: |
+          This is an automated Linux Edge build for commit ${{ github.sha }}
+        files: BlackTek-Server-ubuntu-24.04-${{ github.sha }}.zip
+    
+    # Official Release Upload
+    - name: Create and Upload Official Release
+      if: steps.release_type.outputs.is_release == 'true'
+      uses: softprops/action-gh-release@v2
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        prerelease: false
+        tag_name: ${{ steps.release_type.outputs.version }}
+        name: BlackTek Server ${{ steps.release_type.outputs.version }}
+        generate_release_notes: true
+        body: |
+          ## BlackTek Server ${{ steps.release_type.outputs.version }}
+          
+          ### Release Information
+          - **Version:** ${{ steps.release_type.outputs.version }}
+          - **Commit:** ${{ github.sha }}
+          - **Build Date:** ${{ github.event.head_commit.timestamp }}
+          
+          ### Installation
+          1. Download the zip file below
+          2. Extract to your desired location
+          3. Configure your server settings
+          4. Run the server executable
+          
+          ### What's Changed
+          See the auto-generated release notes below for a full list of changes.
+        files: BlackTek-Server-Linux-ubuntu-24.04-${{ steps.release_type.outputs.version }}.zip

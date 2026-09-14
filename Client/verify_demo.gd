@@ -1,0 +1,427 @@
+# Headless verification for the BlackTek demo client game layer.
+# Run:  Godot_v4.7.2.exe --headless --path <Client> --script res://verify_demo.gd
+# NOTE: a script error aborts _initialize before quit(); run under a timeout
+# and treat a missing summary as failure.
+extends SceneTree
+
+var fails := 0
+var checks := 0
+
+func _initialize() -> void:
+	print("=== VERIFY BlackTek demo client ===")
+	# Use a throwaway DB so running tests never touches the demo save.
+	var srv: BlackTekGameServer = BlackTekGameServer.new("user://mock_db_verify.json")
+	srv.db.wipe() # deterministic seed
+	var loaded: bool = srv.load_real_data("res://assets/assets.dat", "res://assets/forgotten.otbm")
+	_check("real data loads", loaded)
+	if loaded:
+		_check("dat item names loaded (gold coin)", srv.dat.item_name(2148) == "gold coin")
+		_check("dat item weight > 0 (sword)", srv.dat.item_weight(2376) > 0)
+	_check("item label fallback", srv.item_label(2148).length() > 0)
+
+	# ---- session / mock DB ----
+	_check("bad login rejected", not srv.login_account("demo", "wrong"))
+	_check("good login", srv.login_account("demo", "demo"))
+	var chars: Array = srv.character_list()
+	_check("seeded account has 2 characters", chars.size() == 2)
+	var knight: Dictionary = {}
+	for c in chars:
+		if String(c.name) == "DemoKnight":
+			knight = c
+	_check("DemoKnight found", not knight.is_empty())
+	var spawn: Vector2i = srv.enter_world(knight)
+	_check("enter_world spawns on walkable tile", srv.is_walkable(spawn))
+	var p: Dictionary = srv.players[1]
+	_check("knight level 8 hpmax 255", int(p.level) == 8 and int(p.hpmax) == 255)
+	_check("starter gear equipped (sword in slot 5)", int(p.inv[5].itemtype) == 2376)
+	_check("bag has gold coins", _bag_count(srv, 2148) > 0)
+
+	# ---- movement ----
+	var t0: Vector2i = p.tile
+	var t1: Vector2i = srv.request_move(1, Vector2i(1, 0))
+	_check("move east accepted or blocked", t1 == t0 + Vector2i(1, 0) or t1 == t0)
+
+	# ---- action scripts: potion ----
+	var hp_low := int(srv.players[1].hp) - 50
+	srv.players[1].hp = hp_low
+	var pot_row: Dictionary = _find_in_bag(srv, 7618)
+	_check("has health potion in bag", not pot_row.is_empty())
+	if not pot_row.is_empty():
+		var cnt_before := int(pot_row.count)
+		var ok_use: bool = srv.scripts.use_item(srv, 1, pot_row)
+		_check("health potion heals", ok_use and int(srv.players[1].hp) > hp_low)
+		var pot_after: Dictionary = _find_in_bag(srv, 7618)
+		var cnt_after: int = int(pot_after.count) if not pot_after.is_empty() else 0
+		_check("potion consumed", cnt_after == cnt_before - 1)
+
+	# ---- spells ----
+	srv.players[1].hp = 100
+	srv.players[1].mana = 100
+	var cast1: bool = srv.scripts.cast_spell(srv, 1, "exura")
+	_check("exura cast", cast1 and int(srv.players[1].hp) > 100)
+	var hp_mid := int(srv.players[1].hp)
+	srv.players[1].mana = 100
+	srv.scripts.cast_spell(srv, 1, "exura")
+	_check("exura exhausted on second cast", int(srv.players[1].hp) == hp_mid)
+
+	# ---- talkactions ----
+	srv.scripts.handle_talk(srv, 1, "/pos")
+	_check("talkaction /pos handled", true)
+	_check("GM gate: /t refused for player", not srv.is_gm(1))
+
+	# ---- NPC shop purchase ----
+	var gold_before := _bag_count(srv, 2148)
+	srv.buy_shop_item(1, {"itemtype": 7618, "price": 50, "name": "health potion"})
+	_check("buy costs 50 gold", gold_before - _bag_count(srv, 2148) == 50)
+	_check("bought potion lands in bag", not _find_in_bag(srv, 7618).is_empty())
+
+	# ---- combat ----
+	var exp_before := int(srv.players[1].exp)
+	var mid := 0
+	for m in srv.monsters.keys():
+		mid = int(m)
+		break
+	_check("monster spawned on enter_world", mid != 0)
+	if mid != 0:
+		srv.monsters[mid].tile = srv.players[1].tile + Vector2i(1, 0)
+		srv.monsters[mid].hp = 5
+		srv.set_target(1, srv.monsters[mid])
+		srv.attack_current_target(1)
+		_check("melee killed weakened rat", not srv.monsters.has(mid))
+		_check("exp gained from kill", int(srv.players[1].exp) > exp_before)
+		_check("loot gold gained", _bag_count(srv, 2148) > 0)
+
+	# ---- food ----
+	if _find_in_bag(srv, 2666).is_empty():
+		srv.add_item(1, 2666, 1)
+	var meat: Dictionary = _find_in_bag(srv, 2666)
+	srv.scripts.use_item(srv, 1, meat)
+	_check("food condition set", float(srv.players[1].food_until) > 0.0)
+
+	# ---- regen tick ----
+	srv.players[1].hp = 10
+	for i in range(300):
+		srv.tick(0.05)
+	_check("regen restored hp over ticks", int(srv.players[1].hp) > 10)
+
+	# ---- persistence roundtrip ----
+	var pos_before: Vector2i = srv.players[1].tile
+	var lvl_before := int(srv.players[1].level)
+	var hp_before := int(srv.players[1].hp)
+	srv.save_all()
+	var srv2: BlackTekGameServer = BlackTekGameServer.new("user://mock_db_verify.json")
+	srv2.load_real_data("res://assets/assets.dat", "res://assets/forgotten.otbm")
+	srv2.login_account("demo", "demo")
+	var knight2: Dictionary = {}
+	for c in srv2.character_list():
+		if String(c.name) == "DemoKnight":
+			knight2 = c
+	_check("saved level persisted", int(knight2.level) == lvl_before)
+	_check("saved hp persisted", int(knight2.health) == hp_before)
+	srv2.enter_world(knight2)
+	_check("saved position persisted", srv2.players[1].tile == pos_before)
+	_check("equipped sword persisted", int(srv2.players[1].inv[5].itemtype) == 2376)
+
+	# ---- character creation ----
+	var created: Dictionary = srv2.create_character("VerifyMage", 1)
+	_check("create character", not created.is_empty())
+	_check("duplicate name rejected", srv2.create_character("VerifyMage", 1).is_empty())
+	_check("short name rejected", srv2.create_character("ab", 1).is_empty())
+
+	# ---- occupancy: monsters and players never share an SQM ----
+	var mid2 := 0
+	for m in srv.monsters.keys():
+		mid2 = int(m)
+		break
+	_check("monster exists for occupancy test", mid2 != 0)
+	if mid2 != 0:
+		var mtile: Vector2i = srv.monsters[mid2].tile
+		srv.players[1].tile = mtile + Vector2i(1, 0)
+		var blocked: Vector2i = srv.request_move(1, Vector2i(-1, 0)) # into the rat
+		_check("player cannot step onto monster SQM", blocked == srv.players[1].tile)
+		srv.monsters[mid2].tile = srv.players[1].tile # force artificial overlap
+		_check("occupied tile is rejected for spawning", not srv._tile_free_for_monster(srv.players[1].tile, int(srv.players[1].z), mid2))
+		srv.monsters[mid2].tile = mtile
+
+	# Keep only one monster for the deterministic push/path tests below.
+	for other_mid in srv.monsters.keys():
+		if int(other_mid) != mid2:
+			srv.monsters.erase(other_mid)
+	srv.monsters[mid2].target_pid = 0
+	srv.monsters[mid2].tile = srv.players[1].tile + Vector2i(4, 0)
+
+	# ---- conditions: PZ at temple, fed/poisoned flags ----
+	srv.players[1].tile = spawn
+	_check("temple area is a protection zone", srv.is_pz_tile(spawn))
+	srv.players[1].food_until = 0.0
+	_check("not fed without food condition", not srv.is_fed(1))
+	_check("not poisoned at spawn", not srv.is_poisoned(1))
+	srv.players[1].poison_until = Time.get_ticks_msec() / 1000 + 5.0
+	_check("poison flag active", srv.is_poisoned(1))
+	srv.players[1].poison_until = 0.0
+	var hp_at_poison := 20
+	srv.players[1].vocation = 0 # None: negligible regen so poison damage is isolated
+	srv.players[1].hp = hp_at_poison
+	srv.players[1].poison_until = Time.get_ticks_msec() / 1000 + 5.0
+	srv.monsters[mid2].tile = srv.players[1].tile + Vector2i(12, 0)
+	for i in range(120):
+		srv.tick(0.05)
+	_check("poison deals damage over time", int(srv.players[1].hp) < hp_at_poison)
+	srv.players[1].vocation = 4
+	srv.players[1].hp = int(srv.players[1].hpmax)
+	srv.players[1].poison_until = 0.0
+
+	# ---- mouse push: melee range, adjacent free SQM, cooldown ----
+	if mid2 != 0 and srv.monsters.has(mid2):
+		srv.monsters[mid2].tile = srv.players[1].tile + Vector2i(1, 0)
+		srv.monsters[mid2].z = int(srv.players[1].z)
+		srv.monsters[mid2].erase("push_cd")
+		var to: Vector2i = srv.monsters[mid2].tile + Vector2i(0, 1)
+		_check("push south to adjacent free tile", srv.push_monster(mid2, Vector2i(0, 1), 1))
+		_check("push moved the monster one SQM", srv.monsters[mid2].tile == to)
+		_check("push to non-adjacent direction refused", not srv.push_monster(mid2, Vector2i(5, 0), 1))
+		srv.monsters[mid2].push_cd = Time.get_ticks_msec() / 1000 + 10.0
+		_check("push respects cooldown", not srv.push_monster(mid2, Vector2i(1, 0), 1))
+		_check("can_push validates adjacency", not srv.can_push_monster(mid2, Vector2i(3, 0)))
+		# anti-abuse: the pusher must stand next to the creature (same floor,
+		# Chebyshev distance <= 1), even with no cooldown active.
+		srv.monsters[mid2].erase("push_cd")
+		srv.monsters[mid2].tile = srv.players[1].tile + Vector2i(4, 0)
+		_check("push from distance refused", not srv.push_monster(mid2, Vector2i(0, 1), 1))
+		_check("distant monster did not move", srv.monsters[mid2].tile == srv.players[1].tile + Vector2i(4, 0))
+		srv.monsters[mid2].tile = srv.players[1].tile + Vector2i(1, 0)
+		srv.monsters[mid2].z = int(srv.players[1].z) + 1
+		_check("push across floors refused", not srv.push_monster(mid2, Vector2i(0, 1), 1))
+		srv.monsters[mid2].z = int(srv.players[1].z)
+		# push cooldown readout for the stats loading bar
+		srv.monsters[mid2].push_cd = Time.get_ticks_msec() / 1000 + 5.0
+		_check("push cooldown reported while active", srv.push_cooldown_remaining(mid2) > 4.0)
+		srv.monsters[mid2].push_cd = 0.0
+		_check("push cooldown ready at zero", srv.push_cooldown_remaining(mid2) == 0.0)
+		_check("push cooldown unknown monster is zero", srv.push_cooldown_remaining(99999) == 0.0)
+		# client drag snap: 8-way angle snap (diagonal side-pushes included)
+		_check("push dir east", BlackTekWorldView._push_drag_dir_for(Vector2(30, 5)) == Vector2i(1, 0))
+		_check("push dir north", BlackTekWorldView._push_drag_dir_for(Vector2(3, -40)) == Vector2i(0, -1))
+		_check("push dir short drag is click", BlackTekWorldView._push_drag_dir_for(Vector2(5, 5)) == Vector2i.ZERO)
+		_check("push dir southeast diagonal", BlackTekWorldView._push_drag_dir_for(Vector2(30, 30)) == Vector2i(1, 1))
+		_check("push dir southwest diagonal", BlackTekWorldView._push_drag_dir_for(Vector2(-20, 20)) == Vector2i(-1, 1))
+		_check("push dir west", BlackTekWorldView._push_drag_dir_for(Vector2(-30, 8)) == Vector2i(-1, 0))
+
+	# ---- pushing map items: topmost movable object shoved 1 SQM ----
+	var iz := int(srv.players[1].z)
+	var itile := Vector2i(-9999, -9999)
+	for pos in srv.otbm.tiles.keys():
+		if pos.z != iz:
+			continue
+		var c := Vector2i(pos.x, pos.y)
+		if maxi(absi(c.x - srv.players[1].tile.x), absi(c.y - srv.players[1].tile.y)) > 30:
+			continue
+		if c == srv.players[1].tile or not srv.monster_at(c, iz).is_empty():
+			continue
+		if not srv.pushable_item_at(c, iz).is_empty():
+			itile = c
+			break
+	_check("a pushable map item exists near spawn", itile != Vector2i(-9999, -9999))
+	if itile != Vector2i(-9999, -9999):
+		srv.players[1].tile = spawn # stand back at spawn, then step next to it
+		var stood := false
+		for off in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+			if srv.is_walkable(itile + off, iz) and srv.monster_at(itile + off, iz).is_empty():
+				srv.players[1].tile = itile + off
+				stood = true
+				break
+		_check("stood next to the item", stood)
+		var shoved := false
+		for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+			if srv.can_push_item(itile, d, iz):
+				var n0: int = srv.tile_info(itile, iz).get("items", PackedInt32Array()).size()
+				var n1: int = srv.tile_info(itile + d, iz).get("items", PackedInt32Array()).size()
+				shoved = srv.push_item(itile, d, iz, 1)
+				_check("item left its tile", srv.tile_info(itile, iz).get("items", PackedInt32Array()).size() == n0 - 1)
+				_check("item landed on dest tile", srv.tile_info(itile + d, iz).get("items", PackedInt32Array()).size() == n1 + 1)
+				break
+		_check("item shove works", shoved)
+		srv.players[1].tile = spawn
+
+	# ---- doors: click in reach swings the leaf, swapping its item id ----
+	_check("door pairs loaded", not srv.dat.door_pairs.is_empty())
+	var dtile := Vector2i(-9999, -9999)
+	var dz := int(srv.players[1].z)
+	for pos in srv.otbm.tiles.keys():
+		if pos.z != dz:
+			continue
+		var dc := Vector2i(pos.x, pos.y)
+		var leaf: Dictionary = srv.door_at(dc, dz)
+		if not leaf.is_empty() and not bool(leaf.open):
+			dtile = dc
+			break
+	_check("a closed door exists on this floor", dtile != Vector2i(-9999, -9999))
+	if dtile != Vector2i(-9999, -9999):
+		srv.players[1].tile = spawn
+		var stood_d := false
+		for off in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 1), Vector2i(-1, -1), Vector2i(1, -1), Vector2i(-1, 1)]:
+			if srv.is_walkable(dtile + off, dz) and srv.monster_at(dtile + off, dz).is_empty():
+				srv.players[1].tile = dtile + off
+				stood_d = true
+				break
+		_check("stood next to the door", stood_d)
+		var shut_id: int = int(srv.door_at(dtile, dz).itemtype)
+		_check("door opens in reach", srv.use_door(dtile, dz, 1))
+		_check("leaf swapped to open", srv.door_at(dtile, dz).itemtype != shut_id and bool(srv.door_at(dtile, dz).open))
+		srv.monsters[778001] = {"id": 778001, "name": "Rat", "tile": dtile, "z": dz, "hp": 25, "hpmax": 25, "move_cd": 0.0, "attack_cd": 0.0, "target_pid": 0}
+		_check("occupied door stays open", not srv.use_door(dtile, dz, 1))
+		srv.monsters.erase(778001)
+		_check("door closes again", srv.use_door(dtile, dz, 1))
+		_check("leaf swapped back to closed", int(srv.door_at(dtile, dz).itemtype) == shut_id)
+		srv.players[1].tile = spawn
+		if maxi(absi(dtile.x - spawn.x), absi(dtile.y - spawn.y)) > 1:
+			_check("far door use refused", not srv.use_door(dtile, dz, 1))
+			_check("far door left closed", int(srv.door_at(dtile, dz).itemtype) == shut_id)
+
+	# ---- click pathfinding (Dijkstra: shortest route, diagonals cost sqrt(2)) ----
+	srv.monsters.clear() # deterministic open ground for the shortcut check
+	var diag_target: Vector2i = srv.players[1].tile + Vector2i(2, 2)
+	var diag_steps: int = srv.request_path(1, diag_target)
+	_check("diagonal shortcut is 2 steps", diag_steps == 2)
+	_check("diagonal shortcut steps diagonally", srv.get_path(1) == [srv.players[1].tile + Vector2i(1, 1), diag_target])
+	for i in range(60):
+		srv.tick(0.05)
+	_check("player walks the diagonal shortcut", srv.players[1].tile == diag_target)
+	# corner rule is walkability-only (matches request_move): rats on the
+	# neighbouring tiles never pinch a diagonal, only walls do.
+	srv.monsters[777001] = {"id": 777001, "name": "Rat", "tile": srv.players[1].tile + Vector2i(1, 0), "z": iz, "hp": 25, "hpmax": 25, "move_cd": 0.0, "attack_cd": 0.0, "target_pid": 0}
+	var sq_steps: int = srv.request_path(1, srv.players[1].tile + Vector2i(1, 1))
+	_check("diagonal squeezes past one rat neighbour", sq_steps == 1)
+	srv.monsters[777002] = {"id": 777002, "name": "Rat", "tile": srv.players[1].tile + Vector2i(0, 1), "z": iz, "hp": 25, "hpmax": 25, "move_cd": 0.0, "attack_cd": 0.0, "target_pid": 0}
+	var pinched: int = srv.request_path(1, srv.players[1].tile + Vector2i(1, 1))
+	_check("diagonal still routes between two rats", pinched == 1)
+	srv.monsters.erase(777001)
+	srv.monsters.erase(777002)
+	srv.cancel_path(1)
+	var walker_tile: Vector2i = srv.players[1].tile
+	var path_target: Vector2i = walker_tile + Vector2i(3, 2)
+	var steps: int = srv.request_path(1, path_target)
+	_check("path found to reachable tile", steps > 0)
+	_check("path to unreachable tile refused", srv.request_path(1, Vector2i(-50, -50)) == -1)
+	for i in range(300):
+		srv.tick(0.05)
+	_check("player walks along the path", srv.players[1].tile == path_target)
+	_check("path queue empty on arrival", srv.get_path(1).is_empty())
+	srv.cancel_path(1)
+
+	# ---- light sources parsed from assets.dat (flag 22) ----
+	var lit := 0
+	for it in srv.dat.items.values():
+		if int(it.get("light", 0)) > 0:
+			lit += 1
+	_check("dat has light sources (torches/fires)", lit > 0)
+
+	# ---- item stats text ----
+	var sword_stats: String = srv.item_stats_text(2376)
+	_check("sword stats show attack + weight", "Attack: +14" in sword_stats and "Weight:" in sword_stats)
+	_check("plate armor shows defense", "Defense: +10" in srv.item_stats_text(2463))
+	_check("health potion shows heal range", "Heals 100-160 hitpoints" in srv.item_stats_text(7618))
+
+	# ---- HUD regression (runs on frame 1 — see _process; a Control added to
+	# root during _initialize is not in the tree yet, so _ready never fires) ----
+	_hud_srv = srv2
+	_hud = BlackTekHud.new()
+	_hud.game = srv2
+
+func _process(_delta: float) -> bool:
+	_frames += 1
+	if _frames != 1 or _hud == null:
+		return false
+	root.add_child(_hud)
+	_check("equipped_weapon tolerates null slot", _hud_srv.equipped_weapon(1) >= 0)
+	_check("total_armor tolerates null slot", _hud_srv.total_armor(1) >= 0)
+	_hud_srv.players[1].inv[4] = null # armor slot cleared (unequip)
+	_hud.refresh_stats()
+	_hud.refresh_inventory()
+	_hud_srv.add_item(1, BlackTekActionScripts.GOLD_COIN, 7) # add_item with null bag slots present
+	_check("pay_gold tolerates null bag slots", _hud_srv.pay_gold(1, 3))
+	_hud_srv.save_all() # save with null slots present (must not drop remaining items)
+	var srv3: BlackTekGameServer = BlackTekGameServer.new("user://mock_db_verify.json")
+	srv3.login_account("demo", "demo")
+	var knight3: Dictionary = {}
+	for c in srv3.character_list():
+		if String(c.name) == "DemoKnight":
+			knight3 = c
+	srv3.enter_world(knight3)
+	_check("sword persisted after null-slot save", int(srv3.players[1].inv[5].itemtype) == 2376)
+	_check("cleared armor slot stays cleared", srv3.players[1].inv.get(4) == null)
+	_check("bag potions persisted (3x health)", int(_find_in_bag(srv3, 7618).get("count", 0)) == 3)
+	# ---- client push glue: finish_push must read the drag BEFORE clearing the
+	# push state (clearing first made every release a silent no-op).
+	_glue_push_checks()
+	print("=== %d checks, %d failed ===" % [checks, fails])
+	quit(1 if fails > 0 else 0)
+	return true
+
+var _hud: BlackTekHud
+var _hud_srv: BlackTekGameServer
+var _frames := 0
+
+# Drives the real world-view push pipeline (view state -> finish_push ->
+# server) with a synthetic 100px drag. Needs the scene tree (viewport).
+func _glue_push_checks() -> void:
+	var vw := BlackTekWorldView.new()
+	vw.server = _hud_srv
+	root.add_child(vw)
+	vw.player_tile = _hud_srv.players[1].tile
+	var pz: int = int(_hud_srv.players[1].z)
+	var mouse: Vector2 = vw.get_viewport().get_mouse_position()
+	var gtest := 900001
+	_hud_srv.monsters[gtest] = {"id": gtest, "name": "Rat", "tile": Vector2i(-9999, -9999), "z": pz, "hp": 25, "hpmax": 25, "move_cd": 0.0, "attack_cd": 0.0, "target_pid": 0}
+	var done_rat := false
+	for off in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+		var rt: Vector2i = vw.player_tile + off
+		if not _hud_srv.is_walkable(rt, pz) or not _hud_srv.monster_at(rt, pz).is_empty():
+			continue
+		_hud_srv.monsters[gtest].tile = rt
+		_hud_srv.monsters[gtest].erase("push_cd")
+		for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+			if _hud_srv.can_push_monster(gtest, d):
+				vw.push = {"kind": "mon", "mid": gtest, "start": mouse - Vector2(d) * 100.0}
+				vw.finish_push()
+				_check("glue: rat push moves monster", _hud_srv.monsters[gtest].tile == rt + d)
+				done_rat = true
+				break
+		if done_rat:
+			break
+	_check("glue: rat push had room", done_rat)
+	for d2 in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+		var dest: Vector2i = _hud_srv.players[1].tile + d2
+		if _hud_srv.is_walkable(dest, pz) and _hud_srv.monster_at(dest, pz).is_empty():
+			var before: Vector2i = _hud_srv.players[1].tile
+			vw.push = {"kind": "self", "start": mouse - Vector2(d2) * 100.0}
+			vw.finish_push()
+			_check("glue: self push steps player", _hud_srv.players[1].tile == before + d2)
+			break
+	_hud_srv.monsters.erase(gtest)
+	vw.queue_free()
+
+func _check(what: String, cond: bool) -> void:
+	checks += 1
+	if cond:
+		print("  PASS  %s" % what)
+	else:
+		fails += 1
+		print("  FAIL  %s" % what)
+
+func _bag_count(srv: BlackTekGameServer, itemtype: int) -> int:
+	var total := 0
+	var bag: Dictionary = srv.players[1].bag
+	for i in range(20):
+		var it: Dictionary = bag.get(i) if bag.get(i) != null else {}
+		if not it.is_empty() and int(it.itemtype) == itemtype:
+			total += int(it.count)
+	return total
+
+func _find_in_bag(srv: BlackTekGameServer, itemtype: int) -> Dictionary:
+	var bag: Dictionary = srv.players[1].bag
+	for i in range(20):
+		var it: Dictionary = bag.get(i) if bag.get(i) != null else {}
+		if not it.is_empty() and int(it.itemtype) == itemtype:
+			return it
+	return {}

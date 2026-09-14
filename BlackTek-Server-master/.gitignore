@@ -1,0 +1,31 @@
+# Visual Studio
+/.vs
+**.sln
+**.vcxproj
+**.vcxproj.user
+**.vcxproj.filters
+
+# Build Output
+/build
+
+*.dll
+*.exe
+*.pdb
+
+# VCPKG Dependencies
+/vcpkg_installed
+
+# Personal Config File
+config.lua
+
+# CLion and other JetBrains tools
+/.idea
+
+# Docker volumes
+db-data
+
+# Log files
+blacktek.log
+
+# Tmp folder for user's private files
+/tmp

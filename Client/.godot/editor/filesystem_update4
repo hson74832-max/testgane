@@ -1,0 +1,8 @@
+res://scripts/hud.gd
+res://scripts/main.gd
+res://scripts/world_view.gd
+res://scripts/game/server.gd
+res://scripts/game/world.gd
+res://scripts/game/loaders/dat_loader.gd
+res://scripts/ui/ui_kit.gd
+res://scripts/ui/gear_panel.gd

@@ -1,0 +1,127 @@
+local questDoor = ItemEvent()
+
+questDoor.onUse = function(player, item, fromPosition, target, toPosition, isHotkey)
+    local doorId = item:getId()
+    local isQuestDoor, doorState, pairedId = isQuestDoor(doorId)
+
+    if not isQuestDoor then
+        return false
+    end
+
+    local doorActionId = item:getActionId()
+
+    if doorState == "closed" then
+
+        if player:hasGamemasterAccess() and doorConfig.allowGamemasterBypass then
+            teleportOnDoor(player, toPosition)
+            return true
+        end
+
+        if doorActionId == 0 then
+            player:sendTextMessage(MESSAGE_EVENT_ADVANCE, questDoors.messages.noActionId)
+            return true
+        end
+
+        if not canOpenQuestDoor(player, doorActionId) then
+            player:sendTextMessage(MESSAGE_EVENT_ADVANCE, questDoors.messages.sealed)
+            return true
+        end
+
+        player:teleportTo(toPosition, true)
+        item:transform(pairedId)
+        return true
+    end
+
+    if doorState == "open" then
+        if doorActionId ~= 0 and doorConfig.questDoorRequireToClose then
+            if not canOpenQuestDoor(player, doorActionId) then
+                player:sendTextMessage(MESSAGE_EVENT_ADVANCE, questDoors.messages.needQuestClosing)
+                return true
+            end
+        end
+
+        if closeDoor(toPosition, item) then
+            return true
+        else
+            player:sendTextMessage(MESSAGE_EVENT_ADVANCE, doorConfig.closeErrorMessage)
+            return true
+        end
+    end
+
+    return false
+end
+
+for closedId, openId in pairs(questDoors.ids) do
+    questDoor:id(closedId, openId)
+end
+
+questDoor:register()
+
+
+local questDoorStepOn = ItemEvent()
+
+questDoorStepOn.onStepOn = function(creature, item, position, fromPosition)
+    if not creature:isPlayer() then
+        if not doorConfig.questDoorAllowMonsters then
+            creature:teleportTo(fromPosition, true)
+            return false
+        end
+        return true
+    end
+
+    local player = creature
+
+    if player:hasGamemasterAccess() and doorConfig.allowGamemasterBypass then
+        return true
+    end
+
+    local doorActionId = item:getActionId()
+
+    if doorActionId == 0 then
+        storeCreatureEntryPosition(creature, fromPosition)
+        return true
+    end
+
+    if not canOpenQuestDoor(player, doorActionId) then
+        player:sendTextMessage(MESSAGE_EVENT_ADVANCE, questDoors.messages.sealed)
+        player:teleportTo(fromPosition, true)
+        return false
+    end
+
+    storeCreatureEntryPosition(creature, fromPosition)
+    return true
+end
+
+for closedId, openId in pairs(questDoors.ids) do
+    questDoorStepOn:id(openId)
+end
+
+questDoorStepOn:register()
+
+
+local questDoorStepOff = ItemEvent()
+
+questDoorStepOff.onStepOff = function(creature, item, position, fromPosition)
+    clearCreatureEntryPosition(creature)
+    local doorPosition = item:getPosition()
+    local tile = Tile(doorPosition)
+
+    if tile then
+        local creatures = tile:getCreatures()
+        if creatures then
+            for _, c in ipairs(creatures) do
+                if not c:isRemoved() and c:getHealth() > 0 and not (doorConfig.allowGamemasterBypass and c:isPlayer() and c:hasGamemasterAccess()) then
+                    return true
+                end
+            end
+        end
+    end
+
+    return closeDoor(doorPosition, item)
+end
+
+for closedId, openId in pairs(questDoors.ids) do
+    questDoorStepOff:id(openId)
+end
+
+questDoorStepOff:register()

@@ -1,0 +1,18 @@
+local combat = Combat(MonsterCombats.UndeadDragonCurse)
+
+local spell = Spell(SPELL_INSTANT)
+
+function spell.onCastSpell(creature, variant)
+	local damage = math.random(154, 266)
+	for _, target in ipairs(combat:getTargets(creature, variant)) do
+		creature:addDamageCondition(target, CONDITION_CURSED, DAMAGELIST_EXPONENTIAL_DAMAGE, damage)
+	end
+	return true
+end
+
+spell:name("undead dragon curse")
+spell:words("###10")
+spell:needDirection(true)
+spell:blockWalls(true)
+spell:needLearn(true)
+spell:register()

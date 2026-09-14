@@ -1,0 +1,19 @@
+local combat = Combat(MonsterCombats.DarkTorturerSkillReducer)
+
+local parameters = {{key = CONDITION_PARAM_TICKS, value = 8 * 1000}, {key = CONDITION_PARAM_SKILL_SHIELDPERCENT, value = 85}}
+
+local spell = Spell(SPELL_INSTANT)
+
+function spell.onCastSpell(creature, variant)
+	for _, target in ipairs(combat:getTargets(creature, variant)) do
+		target:addAttributeCondition(parameters)
+	end
+	return true
+end
+
+spell:name("dark torturer skill reducer")
+spell:words("###34")
+spell:needDirection(true)
+spell:blockWalls(true)
+spell:needLearn(true)
+spell:register()
