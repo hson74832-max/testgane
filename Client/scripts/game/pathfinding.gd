@@ -50,17 +50,13 @@ static func find_path(game, start: Vector2i, target: Vector2i, z: int, avoid: Ar
 	var came_from: Dictionary = {start: start}
 	var dist: Dictionary = {start: 0.0}
 	var closed := {}
-	var open: Array = [start]
+	var heap := BlackTekHeap.new()
+	heap.push(0.0, start)
 	var found := false
 	var guard := 0
-	while not open.is_empty() and guard < 12000:
+	while not heap.empty() and guard < 12000:
 		guard += 1
-		var bi := 0
-		for i in range(1, open.size()):
-			if float(dist[open[i]]) < float(dist[open[bi]]):
-				bi = i
-		var cur: Vector2i = open[bi]
-		open.remove_at(bi)
+		var cur: Vector2i = heap.pop()
 		if closed.has(cur):
 			continue
 		closed[cur] = true
@@ -79,7 +75,7 @@ static func find_path(game, start: Vector2i, target: Vector2i, z: int, avoid: Ar
 			if nd < float(dist.get(next, 1e30)):
 				dist[next] = nd
 				came_from[next] = cur
-				open.append(next)
+				heap.push(nd, next)
 	if not found:
 		return []
 	# Reconstruct start-exclusive path.

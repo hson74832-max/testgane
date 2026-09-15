@@ -39,6 +39,7 @@ func _ready() -> void:
 	hud._opt_retro.toggled.connect(func(_o: bool): _set_gfx())
 	hud._opt_pixels.pressed.connect(_on_pixels_pressed)
 	hud.apply_hotbar_layout(cfg_hotbar_load())
+	hud.set_waypoints(cfg_waypoints_load())
 	view.hud = hud # enables click-path dots + push feedback in the world view
 	hud.game_view = view # enables floor drops (bag drags ending over the world)
 	# Boot log.
@@ -367,7 +368,15 @@ func _save_gfx() -> void:
 	cfg.set_value("graphics", "retro", _cfg.retro)
 	cfg.set_value("graphics", "pixels", _cfg.pixels)
 	cfg.set_value("hotbar", "slots", hud.hotbar_layout())
+	cfg.set_value("waypoints", "marks", hud.get_waypoints())
 	cfg.save(CFG_PATH)
+
+func cfg_waypoints_load() -> Array:
+	var cfg := ConfigFile.new()
+	if cfg.load(CFG_PATH) == OK:
+		var v: Variant = cfg.get_value("waypoints", "marks", [])
+		return v if v is Array else []
+	return []
 
 func cfg_hotbar_load() -> Array:
 	var cfg := ConfigFile.new()

@@ -104,11 +104,31 @@ func load_real_data(dat_path: String, otbm_path: String) -> bool:
 # - order: ground, ground-border, on-bottom, middle, on-top (Tile::draw).
 # - elevation: later things shift up by accumulated pixels (Tile::drawElevation).
 # Returns Array of {tex: Texture2D, ox: float, oy: float} pixel offsets from tile origin.
+# Cached per (tile, z): tile contents only change through the interaction
+# layer (push/drop/pickup/doors), which bumps map_version, so cache hits are
+# exact and invalidation is a single counter — no per-entry dirty tracking.
+var _draw_cache := {}
+var map_version := 0
+
+func bump_map() -> void:
+	map_version += 1
+	if _draw_cache.size() > 2000:
+		_draw_cache.clear() # hygiene cap; version check already guards staleness
+
 func get_tile_draws(tile: Vector2i, z := -1) -> Array:
-	var draws := []
 	if not use_real_sprites or spr == null or dat == null:
-		return draws
+		return []
 	var zz: int = z if z >= 0 else demo_z
+	var key := Vector3i(tile.x, tile.y, zz)
+	var hit: Dictionary = _draw_cache.get(key, {})
+	if not hit.is_empty() and int(hit.ver) == map_version:
+		return hit.draws
+	var draws := _compute_tile_draws(tile, zz)
+	_draw_cache[key] = {"ver": map_version, "draws": draws}
+	return draws
+
+func _compute_tile_draws(tile: Vector2i, zz: int) -> Array:
+	var draws := []
 	var ids: Array = tile_info(tile, zz).get("items", [])
 	# Bucket per OTClient Tile::draw pass, preserving OTBM order inside each.
 	var grounds: Array = []

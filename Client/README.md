@@ -31,22 +31,34 @@ scripts/
   game/combat.gd          weapons/armor, targeting, melee, monster attacks, death
   game/loot.gd            loot tables (data/loot_tables.toml) + roll/grant
   game/regeneration.gd    poison + hp/mana regen ticks
-  game/pathfinding.gd     Dijkstra click-routing (sqrt(2) diagonals) + walker
+  game/pathfinding.gd     Dijkstra click-routing (binary-heap open list,
+                          sqrt(2) diagonals) + walker with silent reroutes
+  game/heap.gd            BlackTekHeap — binary min-heap priority queue
   game/npc.gd             Norf: temple post, local-chat hearing, dialogue, wares
   data/                   vocations.toml, rates.toml, equipment_slots.toml,
                           item_stats.toml, gameplay.toml, shop_offers.toml,
                           monster_definitions.toml, loot_tables.toml
   game/world.gd           BlackTekWorld — map data: assets.dat/OTBM/sprites,
-                          walkability, sprite anchoring, light sources
+                          walkability, versioned sprite-draw cache, light sources
   game/database.gd        BlackTekDatabase — MockDB (accounts/players/items)
   game/action_scripts.gd  BlackTekActionScripts — simulated Lua content
   game/loaders/           dat/spr/otbm binary parsers
   net/                    protocol framing + XTEA (for the real server later)
   ui/ui_kit.gd            shared theme, widget factories, free placement grid
   ui/gear_panel.gd        equipment + backpack screens (click/drag inventory)
-  hud.gd                  HUD root: login, status bars, chat, stats, hotbar,
-                          rail, minimap, shop + server signal wiring
-verify_demo.gd            headless regression suite (133 checks)
+  ui/login_panel.gd       login + character select/create overlay
+  ui/status_panel.gd      HP/Mana/XP bars + condition chips
+  ui/chat_panel.gd        tabbed chat log + input
+  ui/stats_panel.gd       level/skills/push-cooldown readout
+  ui/shop_panel.gd        Norf's wares: buy/sell, quantity slider, NPC gating
+  ui/hotbar_panel.gd      potion/spell/attack bars, cooldowns, persisted layout
+  ui/target_panel.gd      marked-creature frame (auto-shows/hides)
+  ui/minimap_panel.gd       zoomable minimap: floor layers, markers (rats,
+                            Norf, stairs, temple, waypoints), fog of war,
+                            click-to-walk, persistent waypoints
+  hud.gd                  HUD shell: builds ui/* panels, rail/settings/minimap,
+                          placement machinery, signal wiring (API unchanged)
+verify_demo.gd            headless regression suite (204 checks)
 ```
 
 ## Tuning (no code changes)
@@ -108,7 +120,7 @@ sprites.
 | T | Chat (`hi`, `trade`, `buy`/`sell meat 2`, `exura gran`, `utevo lux`, `/pos`) |
 | G / K | Gear panel / Stats panel |
 | R | Teleport to town temple |
-| M | Toggle minimap |
+| M | Toggle minimap (zoom ±, floor ▲▼ auto-follows, click walks+marks, right-click clears, + mark saves waypoints, fog lifts as you explore) |
 | PgUp / PgDn | Floor up / down |
 | Right rail icons | Gear / Stats / Chat / Shop / Minimap toggles; Retro pixels (crisp/smooth) and sprite upscale 32/64/128px below |
 | Mouse drag on adjacent creature/object | Push it 1 SQM in the drag direction, diagonals included (per-creature cooldown); release a floor item over the open gear panel to take it instead |

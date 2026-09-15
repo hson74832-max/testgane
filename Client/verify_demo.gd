@@ -430,9 +430,11 @@ func _initialize() -> void:
 			if srv.can_push_item(itile, d, iz):
 				var n0: int = srv.tile_info(itile, iz).get("items", PackedInt32Array()).size()
 				var n1: int = srv.tile_info(itile + d, iz).get("items", PackedInt32Array()).size()
+				var mv: int = srv.world.map_version
 				shoved = srv.push_item(itile, d, iz, 1)
 				_check("item left its tile", srv.tile_info(itile, iz).get("items", PackedInt32Array()).size() == n0 - 1)
 				_check("item landed on dest tile", srv.tile_info(itile + d, iz).get("items", PackedInt32Array()).size() == n1 + 1)
+				_check("shove bumps map version", srv.world.map_version == mv + 1)
 				break
 		_check("item shove works", shoved)
 		srv.players[1].tile = spawn
@@ -696,6 +698,28 @@ func _initialize() -> void:
 			lit += 1
 	_check("dat has light sources (torches/fires)", lit > 0)
 
+	# ---- priority queue: pops ascending incl. duplicate costs, drains ----
+	var heap := BlackTekHeap.new()
+	var costs := [5.0, 1.0, 3.0, 3.0, 0.5, 9.0, 2.0]
+	for i in range(costs.size()):
+		heap.push(float(costs[i]), Vector2i(i, 0))
+	var prev_c := -1.0
+	var heap_ok := true
+	while not heap.empty():
+		var got: Vector2i = heap.pop()
+		var cnow: float = float(costs[got.x])
+		if cnow < prev_c:
+			heap_ok = false
+		prev_c = cnow
+	_check("heap pops ascending", heap_ok)
+	_check("heap drains", heap.empty() and heap.size() == 0)
+
+	# ---- sprite draw cache: deterministic hits, versioned invalidation ----
+	var drawn_a := srv.get_tile_draws(spawn)
+	var drawn_b := srv.get_tile_draws(spawn)
+	_check("draw cache deterministic", drawn_a == drawn_b)
+	_check("draw cache populated", srv.world._draw_cache.has(Vector3i(spawn.x, spawn.y, srv.demo_z)))
+
 	# ---- item stats text ----
 	var sword_stats: String = srv.item_stats_text(2376)
 	_check("sword stats show attack + weight", "Attack: +14" in sword_stats and "Weight:" in sword_stats)
@@ -734,6 +758,9 @@ func _process(_delta: float) -> bool:
 	# ---- client push glue: finish_push must read the drag BEFORE clearing the
 	# push state (clearing first made every release a silent no-op).
 	_glue_push_checks()
+	_panel_checks()
+	_light_pool_checks()
+	_minimap_checks()
 	print("=== %d checks, %d failed ===" % [checks, fails])
 	quit(1 if fails > 0 else 0)
 	return true
@@ -780,6 +807,139 @@ func _glue_push_checks() -> void:
 			break
 	_hud_srv.monsters.erase(gtest)
 	vw.queue_free()
+
+# Split-panel API: every ui/* module built, delegates intact, NPC gating and
+# the new target frame behave through the shell.
+func _panel_checks() -> void:
+	_check("panels built", _hud.login_panel.root != null and _hud.status_panel.panel != null and _hud.chat_panel.panel != null and _hud.stats_panel.panel != null and _hud.shop_panel.panel != null and _hud.hotbar_panel.wrap != null and _hud.target_panel.panel != null)
+	_hud.chat_line("T", "panel check")
+	_check("chat delegate writes", _hud.chat_panel.log.get_parsed_text().length() > 0)
+	_hud.target_panel.refresh()
+	_check("target hidden without mark", not _hud.target_panel.panel.visible)
+	var pz: int = int(_hud_srv.players[1].z)
+	_hud_srv.monsters[900002] = {"id": 900002, "name": "Rat", "tile": _hud_srv.players[1].tile + Vector2i(1, 0), "z": pz, "hp": 20, "hpmax": 25, "move_cd": 0.0, "attack_cd": 99.0, "target_pid": 0}
+	_hud_srv.set_target(1, _hud_srv.monsters[900002])
+	_hud.target_panel.refresh()
+	_check("target shown when marked", _hud.target_panel.panel.visible)
+	_hud_srv.set_target(1, {})
+	_hud.target_panel.refresh()
+	_check("target hides on clear", not _hud.target_panel.panel.visible)
+	_hud_srv.monsters.erase(900002)
+	# Shop gating still enforced through the panel: far -> stays shut.
+	var home: Vector2i = _hud_srv.players[1].tile
+	_hud_srv.players[1].tile = home + Vector2i(50, 0)
+	_hud.toggle_shop()
+	_check("shop refuses far open", not _hud.shop_panel.panel.visible)
+	_hud_srv.players[1].tile = home
+	# Hotbar delegates survive the move (incl. out-of-range safety).
+	_hud.activate_slot(9, 9)
+	_hud.apply_hotbar_layout([])
+	_check("hotbar layout roundtrip", _hud.hotbar_layout().size() == 9)
+
+# Torch pool: re-syncing the same viewport reuses nodes (zero churn);
+# shifting re-keys the set without leaks.
+func _light_pool_checks() -> void:
+	var vw := BlackTekWorldView.new()
+	vw.server = _hud_srv
+	root.add_child(vw)
+	var pz: int = int(_hud_srv.players[1].z)
+	var center: Vector2i = _hud_srv.players[1].tile
+	# Find a viewport origin that actually contains a light source.
+	var origin := center - Vector2i(7, 5)
+	var found := false
+	for r in range(0, 25):
+		for dy in range(-r, r + 1):
+			for dx in range(-r, r + 1):
+				var wt := center + Vector2i(dx, dy)
+				if _hud_srv.tile_light_radius(wt, pz) > 0:
+					origin = wt - Vector2i(7, 5)
+					found = true
+					break
+			if found:
+				break
+		if found:
+			break
+	_check("lit viewport found", found)
+	vw._sync_torch_lights(origin)
+	var ids1 := []
+	for k in vw._torch_lights.keys():
+		ids1.append((vw._torch_lights[k] as PointLight2D).get_instance_id())
+	var n1: int = vw._torch_lights.size()
+	vw._sync_torch_lights(origin)
+	var ids2 := []
+	for k in vw._torch_lights.keys():
+		ids2.append((vw._torch_lights[k] as PointLight2D).get_instance_id())
+	_check("light sync reuses nodes", ids1 == ids2 and vw._torch_lights.size() == n1)
+	var origin2 := origin + Vector2i(1, 0)
+	vw._sync_torch_lights(origin2)
+	var want := 0
+	for dy in range(BlackTekWorldView.VIEW_H):
+		for dx in range(BlackTekWorldView.VIEW_W):
+			if _hud_srv.tile_light_radius(origin2 + Vector2i(dx, dy), pz) > 0:
+				want += 1
+	_check("light resync matches wanted set", vw._torch_lights.size() == want)
+	vw.queue_free()
+
+# Minimap: zoom clamp, floor follow, waypoints (add/goto/remove/persist),
+# fog growth, click math. Needs the scene tree (viewport + controls).
+func _minimap_checks() -> void:
+	var mm := _hud.minimap_panel
+	_check("minimap built", mm.panel != null and mm.view != null)
+	mm.set_zoom(6.0)
+	_check("zoom max clamps", mm.px == 6.0)
+	mm.set_zoom(0.0)
+	_check("zoom min clamps", mm.px == 2.0)
+	mm.set_zoom(3.0)
+	var pz0: int = int(_hud_srv.players[1].z)
+	mm.set_floor(5)
+	_check("floor manual browse", mm.view_z == 5)
+	_hud_srv.players[1].z = mini(15, pz0 + 1)
+	mm.tick(0.0)
+	_check("floor re-follows player", mm.view_z == mini(15, pz0 + 1))
+	_hud_srv.players[1].z = pz0
+	mm.tick(0.0)
+	# Waypoints: add here, walk to one nearby, remove, persist roundtrip.
+	var home: Vector2i = _hud_srv.players[1].tile
+	var wname := mm.add_waypoint_here()
+	_check("waypoint added at player", wname != "" and mm.waypoints.size() == 1)
+	var dest := Vector2i(-9999, -9999)
+	for off in [Vector2i(2, 0), Vector2i(-2, 0), Vector2i(0, 2), Vector2i(0, -2)]:
+		var c: Vector2i = home + off
+		if _hud_srv.is_walkable(c, int(_hud_srv.players[1].z)) and _hud_srv.monster_at(c, int(_hud_srv.players[1].z)).is_empty():
+			dest = c
+			break
+	_check("waypoint dest found", dest != Vector2i(-9999, -9999))
+	if dest != Vector2i(-9999, -9999):
+		mm.add_waypoint(dest, int(_hud_srv.players[1].z), "Walk")
+		_check("waypoint goto walks", mm.goto_waypoint(1))
+		_check("goto marks active", mm.active_wp.get("tile", Vector2i(-9999, -9999)) == dest)
+		mm.clear_active(true)
+		mm.remove_waypoint(1)
+		mm.remove_waypoint(0)
+	_check("waypoints removed", mm.waypoints.is_empty() and mm.active_wp.is_empty())
+	mm.add_waypoint(home, int(_hud_srv.players[1].z), "Home")
+	var saved := mm.get_waypoints()
+	mm.set_waypoints([])
+	_check("waypoints cleared", mm.waypoints.is_empty())
+	mm.set_waypoints(saved)
+	_check("waypoints persist roundtrip", mm.waypoints.size() == 1 and String(mm.waypoints[0].name) == "Home")
+	mm.remove_waypoint(0)
+	# Fog: marking explores the neighbourhood, far tiles stay dark.
+	mm.fog.clear()
+	mm.fog_mark(home, int(_hud_srv.players[1].z))
+	_check("fog explores centre", mm.is_explored(home, int(_hud_srv.players[1].z)))
+	_check("fog hides far tiles", not mm.is_explored(home + Vector2i(50, 0), int(_hud_srv.players[1].z)))
+	# Click math: view centre maps back to the player tile.
+	mm.view.size = mm.view.custom_minimum_size
+	var half := mm.view.size * 0.5
+	var pick := mm.pick_tile(half)
+	_check("minimap click centres", bool(pick.inside) and pick.tile == home)
+	var outside := mm.pick_tile(Vector2(-10, -10))
+	_check("minimap click outside rejected", not bool(outside.inside))
+	# Click-to-walk through the panel (centre click = already there).
+	_check("minimap click walks", mm.click_goto(half))
+	mm.tick(1.0)
+	_check("arrival clears marker", mm.active_wp.is_empty())
 
 func _check(what: String, cond: bool) -> void:
 	checks += 1

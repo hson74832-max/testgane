@@ -449,7 +449,7 @@ func _update_lights() -> void:
 		return
 	var origin := _view_origin()
 	if origin != _light_origin or server.demo_z != _light_z:
-		_rebuild_torch_lights(origin)
+		_sync_torch_lights(origin)
 	# Player light follows the smoothed position; torches shimmer gently.
 	_player_light.position = player_px
 	_player_light.energy = 0.9 * glow * (1.0 + 0.02 * sin(now * 2.1))
@@ -503,22 +503,33 @@ func _update_lux_light(origin: Vector2i, lux: bool, level: float, now: float) ->
 	_lux_light.position = tile_to_px(pt) - Vector2(origin) * TILE
 	_apply_flicker(_lux_light, level, now)
 
-func _rebuild_torch_lights(origin: Vector2i) -> void:
-	for key in _torch_lights.keys():
-		(_torch_lights[key] as PointLight2D).queue_free()
-	_torch_lights.clear()
-	_light_origin = origin
-	_light_z = server.demo_z
+# Torch pool, synced by diff: nodes are reused across viewport moves (only
+# positions refresh) instead of freed and recreated every step. Light params
+# are deterministic per tile, so an in-place sync is exactly equivalent.
+func _sync_torch_lights(origin: Vector2i) -> void:
 	var half := Vector2(TILE, TILE) * 0.5
 	var view := view_size()
+	var want := {}
 	for dy in range(view.y):
 		for dx in range(view.x):
 			var wt := origin + Vector2i(dx, dy)
 			var lr := clampf(float(server.tile_light_radius(wt, server.demo_z)) * 0.55, 0.0, 6.0)
 			if lr <= 0.0:
 				continue
-			var n := _spawn_fire_light(Vector2(dx, dy) * TILE + half, wt, lr)
-			_torch_lights[Vector3i(wt.x, wt.y, server.demo_z)] = n
+			want[Vector3i(wt.x, wt.y, server.demo_z)] = [Vector2(dx, dy) * TILE + half, lr]
+	for key in _torch_lights.keys():
+		if not want.has(key):
+			(_torch_lights[key] as PointLight2D).queue_free()
+			_torch_lights.erase(key)
+	for key in want.keys():
+		var spec: Array = want[key]
+		var n: PointLight2D = _torch_lights.get(key)
+		if n == null or not is_instance_valid(n):
+			_torch_lights[key] = _spawn_fire_light(spec[0], Vector2i(key.x, key.y), spec[1])
+		else:
+			n.position = spec[0]
+	_light_origin = origin
+	_light_z = server.demo_z
 
 func _draw_path(origin: Vector2i) -> void:
 	if hud == null or not hud.in_game:

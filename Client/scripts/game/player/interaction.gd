@@ -4,6 +4,11 @@
 class_name BlackTekInteraction
 extends RefCounted
 
+# Any live-tile content change (push/drop/pickup/doors) bumps the world map
+# version so the sprite draw cache drops its stale entries.
+static func touch(game) -> void:
+	game.world.bump_map()
+
 # Topmost movable object on a tile (ground/borders, stairs and static
 # decor are never pushable). Returns {itemtype, index} into the tile's list.
 static func pushable_item_at(game, tile: Vector2i, z: int) -> Dictionary:
@@ -69,6 +74,7 @@ static func push_item(game, tile: Vector2i, dir: Vector2i, z: int, pid: int) -> 
 	var dst_ids: PackedInt32Array = (dst_entry.get("items", PackedInt32Array()) as PackedInt32Array).duplicate()
 	dst_ids.append(moving)
 	dst_entry["items"] = dst_ids
+	BlackTekInteraction.touch(game)
 	game.message_local(pid, "You push the %s %s." % [game.item_label(moving), BlackTekGameServer.dir_name(dir)])
 	return true
 
@@ -130,6 +136,7 @@ static func drop_item(game, pid: int, bpos: int, tile: Vector2i, z: int) -> bool
 	var ids: PackedInt32Array = (entry.get("items", PackedInt32Array()) as PackedInt32Array).duplicate()
 	ids.append(itemtype)
 	entry["items"] = ids
+	BlackTekInteraction.touch(game)
 	game.inventory_changed.emit(pid)
 	game.message_local(pid, "You drop the %s." % game.item_label(itemtype))
 	return true
@@ -167,6 +174,7 @@ static func drop_equipped(game, pid: int, slot: int, tile: Vector2i, z: int) -> 
 	var ids: PackedInt32Array = (entry.get("items", PackedInt32Array()) as PackedInt32Array).duplicate()
 	ids.append(itemtype)
 	entry["items"] = ids
+	BlackTekInteraction.touch(game)
 	game.inventory_changed.emit(pid)
 	game.message_local(pid, "You drop the %s." % game.item_label(itemtype))
 	return true
@@ -194,6 +202,7 @@ static func pickup_item(game, tile: Vector2i, z: int, pid: int) -> bool:
 		return false # tile changed under us; be safe, not sorry
 	ids.remove_at(int(pick.index))
 	entry["items"] = ids
+	BlackTekInteraction.touch(game)
 	# Gear fitting straight into its slot (containers home to Backpack 3),
 	# anything else lands in the backpack as usual.
 	var slot := BlackTekInventory.equip_slot(game, itemtype)
@@ -251,5 +260,6 @@ static func use_door(game, tile: Vector2i, z: int, pid: int) -> bool:
 		return false # tile changed under us; be safe, not sorry
 	ids[int(door.index)] = int(door.to)
 	entry["items"] = ids
+	BlackTekInteraction.touch(game)
 	game.message_local(pid, "You close the door." if bool(door.open) else "You open the door.")
 	return true
