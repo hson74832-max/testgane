@@ -1,6 +1,7 @@
-# Minimap: zoomable radius map with floor layers, markers (monsters, Norf,
-# stairs, temple, waypoints) and fog of war. Left-click walks + marks,
-# right-click clears. Waypoints persist through the shell (user cfg).
+# Minimap: zoomable radius map with floor layers, markers (Norf, stairs,
+# temple, named waypoints with hover infotext) and fog of war. Left-click
+# walks + marks, right-click only stops walking (marks stay). Waypoints
+# persist through the shell (user cfg).
 class_name BlackTekMinimapPanel
 extends RefCounted
 
@@ -293,7 +294,7 @@ func click_goto(local: Vector2) -> bool:
 	return true
 
 # Hover infotext: what lives under the cursor (NPC, waypoint, stairs,
-// temple, you). Updates the view tooltip live.
+# temple, you). Updates the view tooltip live.
 func _hover_info(local: Vector2) -> void:
 	var info := ""
 	if game != null and not game.players.is_empty():
@@ -317,6 +318,8 @@ func _hover_info(local: Vector2) -> void:
 			if info == "" and t == game.players[pid].tile and view_z == int(game.players[pid].z):
 				info = "You (%s)" % String(game.players[pid].get("name", ""))
 	view.tooltip_text = info
+
+# ---- rendering ----
 
 func _is_stair(t: Vector2i, z: int) -> bool:
 	if game.dat == null:
@@ -360,13 +363,6 @@ func draw_map(v: Control) -> void:
 				var r := px * 0.32
 				v.draw_line(Vector2(cx - r, cy) , Vector2(cx + r, cy), Color(0.35, 0.9, 0.45), 1.0)
 				v.draw_line(Vector2(cx, cy - r), Vector2(cx, cy + r), Color(0.35, 0.9, 0.45), 1.0)
-	for m in game.monsters.values():
-		if int(m.z) != z:
-			continue
-		var off: Vector2i = Vector2i(int(m.tile.x), int(m.tile.y)) - center
-		if absi(off.x) > R or absi(off.y) > R:
-			continue
-		v.draw_rect(Rect2(Vector2((off.x + R) * px + 0.5, (off.y + R) * px + 0.5), Vector2(px - 1, px - 1)), Color(0.95, 0.3, 0.3))
 	for n in game.npcs.values():
 		if int(n.z) != z:
 			continue
@@ -374,10 +370,12 @@ func draw_map(v: Control) -> void:
 		if absi(off2.x) > R or absi(off2.y) > R:
 			continue
 		v.draw_rect(Rect2(Vector2((off2.x + R) * px + 0.5, (off2.y + R) * px + 0.5), Vector2(px - 1, px - 1)), Color(0.3, 0.6, 1.0))
+		_label_at(v, off2, String(n.get("name", "Norf")), Color(0.65, 0.8, 1.0))
 	for w in waypoints:
 		if int(w.z) != z:
 			continue
 		_draw_diamond(v, center, w.tile, Color(0.4, 0.95, 0.9))
+		_label_at(v, w.tile - center, String(w.name), Color(0.6, 0.95, 0.9))
 	if not active_wp.is_empty() and int(active_wp.z) == z:
 		_draw_diamond(v, center, active_wp.tile, Color(1.0, 1.0, 1.0))
 	v.draw_rect(Rect2(Vector2(R * px - 1.5, R * px - 1.5), Vector2(px + 3, px + 3)), Color(0.35, 0.8, 1.0))
@@ -390,3 +388,9 @@ func _draw_diamond(v: Control, center: Vector2i, t: Vector2i, col: Color) -> voi
 	var cy := (off.y + R) * px + px * 0.5
 	var r := px * 0.5
 	v.draw_colored_polygon([Vector2(cx, cy - r), Vector2(cx + r, cy), Vector2(cx, cy + r), Vector2(cx - r, cy)], col)
+
+# Name tag next to a marker (Norf, waypoints): drawn right of the symbol.
+func _label_at(v: Control, off: Vector2i, text: String, col: Color) -> void:
+	if text.strip_edges() == "":
+		return
+	v.draw_string(BlackTekUiKit.px_font(), Vector2((off.x + R) * px + px * 0.7, (off.y + R) * px - 1.0), text, HORIZONTAL_ALIGNMENT_LEFT, 120.0, 10, col)

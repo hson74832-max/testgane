@@ -21,3 +21,4 @@ res://scripts/main.gd
 res://scripts/game/action_scripts.gd
 res://scripts/game/database.gd
 res://scripts/game/player/vitals.gd
+res://scripts/ui/minimap_panel.gd

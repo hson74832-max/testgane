@@ -53,9 +53,10 @@ scripts/
   ui/shop_panel.gd        Norf's wares: buy/sell, quantity slider, NPC gating
   ui/hotbar_panel.gd      potion/spell/attack bars, cooldowns, persisted layout
   ui/target_panel.gd      marked-creature frame (auto-shows/hides)
-  ui/minimap_panel.gd       zoomable minimap: floor layers, markers (rats,
-                            Norf, stairs, temple, waypoints), fog of war,
-                            click-to-walk, persistent waypoints
+  ui/minimap_panel.gd       zoomable minimap: floor layers, markers (Norf,
+                            stairs, temple, named waypoints with hover
+                            infotext), fog of war, click-to-walk,
+                            persistent waypoints
   hud.gd                  HUD shell: builds ui/* panels, rail/settings/minimap,
                           placement machinery, signal wiring (API unchanged)
 verify_demo.gd            headless regression suite (204 checks)
@@ -120,7 +121,7 @@ sprites.
 | T | Chat (`hi`, `trade`, `buy`/`sell meat 2`, `exura gran`, `utevo lux`, `/pos`) |
 | G / K | Gear panel / Stats panel |
 | R | Teleport to town temple |
-| M | Toggle minimap (zoom ±, floor ▲▼ auto-follows, click walks+marks, right-click clears, + mark saves waypoints, fog lifts as you explore) |
+| M | Toggle minimap (zoom ±, floor ▲▼ auto-follows, click walks+marks, right-click stops, + mark saves waypoints, fog lifts as you explore) |
 | PgUp / PgDn | Floor up / down |
 | Right rail icons | Gear / Stats / Chat / Shop / Minimap toggles; Retro pixels (crisp/smooth) and sprite upscale 32/64/128px below |
 | Mouse drag on adjacent creature/object | Push it 1 SQM in the drag direction, diagonals included (per-creature cooldown); release a floor item over the open gear panel to take it instead |

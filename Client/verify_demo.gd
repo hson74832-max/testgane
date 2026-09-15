@@ -913,6 +913,12 @@ func _minimap_checks() -> void:
 		mm.add_waypoint(dest, int(_hud_srv.players[1].z), "Walk")
 		_check("waypoint goto walks", mm.goto_waypoint(1))
 		_check("goto marks active", mm.active_wp.get("tile", Vector2i(-9999, -9999)) == dest)
+		var rclick := InputEventMouseButton.new()
+		rclick.button_index = MOUSE_BUTTON_RIGHT
+		rclick.pressed = true
+		mm.map_input(rclick)
+		_check("right-click keeps waypoint", mm.active_wp.get("tile", Vector2i(-9999, -9999)) == dest)
+		_check("right-click stops path", mm.game.get_path(1).is_empty())
 		mm.clear_active(true)
 		mm.remove_waypoint(1)
 		mm.remove_waypoint(0)
