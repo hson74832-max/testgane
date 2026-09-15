@@ -39,11 +39,20 @@ const HOTBAR_BARS := [
 		{"kind": "spell", "value": "flame", "hotkey": "F5"},
 		{"kind": "attack", "value": "attack", "hotkey": "F6"},
 	]},
+	{"title": "Test Spells", "slots": [
+		{"kind": "spell", "value": "utevo lux", "hotkey": "F7"},
+		{"kind": "spell", "value": "exana pox", "hotkey": "F8"},
+		{"kind": "spell", "value": "exori", "hotkey": "F9"},
+	]},
 ]
 const SPELL_INFO := {
 	"exura": {"label": "Exura", "glyph": "✚"},
 	"flame": {"label": "Flame Strike", "glyph": "✦"},
 	"attack": {"label": "Attack", "glyph": "⚔"},
+	"utevo lux": {"label": "Magic Light", "glyph": "☀"},
+	"exana pox": {"label": "Cure Poison", "glyph": "❀"},
+	"exori": {"label": "Whirlwind", "glyph": "🌀"},
+	"exura gran": {"label": "Greater Heal", "glyph": "✛"},
 }
 
 var game: BlackTekGameServer
@@ -87,6 +96,11 @@ var _stats_box: VBoxContainer
 # --- target / shop ---
 var _shop_panel: PanelContainer
 var _shop_gold: Label
+var _shop_rows: VBoxContainer
+var _shop_offer_rows: Array = []
+var _shop_qty := 1
+var _shop_qty_label: Label
+var _shop_far_warned := false
 # --- hotbar / rail ---
 var _hotbar_slots: Array = []
 var _rail_panel: PanelContainer
@@ -193,7 +207,16 @@ func _process(delta: float) -> void:
 		if _stats_panel.visible:
 			refresh_stats()
 		if _shop_panel.visible:
-			refresh_shop_gold()
+			# NPC trade window is proximity-bound: walking away closes it so
+			# it can't be kept open as a remote supply window.
+			if not game.can_trade_with_npc(_pid):
+				hide_panel(_shop_panel)
+				if not _shop_far_warned:
+					_shop_far_warned = true
+					game.message_local(_pid, "You walked too far from Norf — trade closed.")
+			else:
+				_shop_far_warned = false
+				refresh_shop_gold()
 	# Minimap repaints on its own cadence while visible.
 	if _minimap_panel != null and _minimap_panel.visible:
 		_minimap_clock += delta
@@ -440,6 +463,8 @@ func update_status() -> void:
 		BlackTekUiKit.chip(_cond_row, "PZ", Color(0.35, 0.55, 1.0), "Protection zone (temple area) — you regenerate safely here.")
 	if game.is_poisoned(_pid):
 		BlackTekUiKit.chip(_cond_row, "Poisoned", Color(0.4, 0.75, 0.3), "Losing 2 hitpoints every 2 seconds.")
+	if float(p.get("light_until", 0.0)) > Time.get_ticks_msec() / 1000.0:
+		BlackTekUiKit.chip(_cond_row, "Lit", Color(1.0, 0.85, 0.4), "utevo lux — personal light (see at night).")
 	if game.is_fed(_pid):
 		BlackTekUiKit.chip(_cond_row, "Fed", Color(0.35, 0.8, 0.45), "Well fed — regeneration interval halved.")
 	else:
@@ -473,6 +498,11 @@ func _build_chat() -> void:
 		b.pressed.connect(func(): _set_chat_tab(tab))
 		header.add_child(b)
 		_chat_tab_btns.append({"btn": b, "name": tab})
+	# Spacer pushes the window buttons to the far right of the tab bar.
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	header.add_child(spacer)
 	header.add_child(_header_btn("-", "Minimize to the tab bar", func(): _toggle_minimize(_chat_panel, box)))
 	header.add_child(_header_btn("X", "Close chat (T or the rail icon reopens it)", func(): _chat_panel.visible = false))
 	# Pages: one RichTextLabel per tab, only the active one visible. The labels
@@ -582,6 +612,13 @@ class MinimapView extends Control:
 			if absi(off.x) > R or absi(off.y) > R:
 				continue
 			draw_rect(Rect2(Vector2((off.x + R) * PX + 0.5, (off.y + R) * PX + 0.5), Vector2(PX - 1, PX - 1)), Color(0.95, 0.3, 0.3))
+		for n in game.npcs.values():
+			if int(n.z) != z:
+				continue
+			var off2: Vector2i = Vector2i(int(n.tile.x), int(n.tile.y)) - center
+			if absi(off2.x) > R or absi(off2.y) > R:
+				continue
+			draw_rect(Rect2(Vector2((off2.x + R) * PX + 0.5, (off2.y + R) * PX + 0.5), Vector2(PX - 1, PX - 1)), Color(0.3, 0.6, 1.0))
 		draw_rect(Rect2(Vector2(R * PX - 1.5, R * PX - 1.5), Vector2(PX + 3, PX + 3)), Color(0.35, 0.8, 1.0))
 
 func _build_hotbar() -> void:
@@ -650,6 +687,14 @@ func _refresh_slot_content(rec: Dictionary) -> void:
 			tip += "\nHeals you (20 mana)"
 		elif spell == "flame":
 			tip += "\nFire strike on your target (20 mana)"
+		elif spell == "utevo lux":
+			tip += "\nPersonal light for 120s (10 mana)"
+		elif spell == "exana pox":
+			tip += "\nCures poison (15 mana)"
+		elif spell == "exori":
+			tip += "\nHits everything next to you after a 0.8s wind-up (30 mana)"
+		elif spell == "exura gran":
+			tip += "\nBig heal (40 mana)"
 	btn.tooltip_text = "%s\nLeft-click: use - Hotkey: %s" % [tip, String(rec.get("hotkey", ""))]
 
 func _bag_count_of(itemtype: int) -> int:
@@ -791,7 +836,7 @@ func _build_rail() -> void:
 	row.add_child(_make_icon_button("", "Gear (G)", func(): gear_panel.toggle(), 1988))
 	row.add_child(_make_icon_button("☰", "Stats (K)", func(): _toggle_panel(_stats_panel), -1))
 	row.add_child(_make_icon_button("", "Chat (T)", func(): toggle_chat(), 1949))
-	row.add_child(_make_icon_button("", "Shop (say: trade)", func(): toggle_shop(), 2148))
+	row.add_child(_make_icon_button("", "Shop (trade with Norf)", func(): toggle_shop(), 2148))
 	row.add_child(_make_icon_button("", "Minimap (M)", func(): toggle_minimap(), 1956))
 	row.add_child(_make_icon_button("⚙", "Settings (O)", func(): toggle_settings(), -1))
 
@@ -864,10 +909,15 @@ func _build_minimap() -> void:
 func toggle_shop() -> void:
 	if game.players.is_empty():
 		return
-	refresh_shop_gold()
+	# The shop window is an NPC interaction: it only opens next to a real NPC.
+	if not game.can_trade_with_npc(_pid):
+		game.message_local(_pid, "There is no NPC to trade with here. Walk up to Norf at the temple.")
+		return
+	refresh_shop()
 	if _shop_panel.visible:
 		hide_panel(_shop_panel)
 	else:
+		_shop_far_warned = false
 		show_panel(_shop_panel)
 
 # Small square toggle button with an item icon (itemtype >= 0) or a text glyph.
@@ -1182,7 +1232,7 @@ func _skill_row(name_text: String, level: int, tries: int, need: int) -> void:
 # ---- NPC shop ------------------------------------------------------------------------
 
 func _build_shop() -> void:
-	_shop_panel = BlackTekUiKit.panel(self, "center", Vector2(300, 270))
+	_shop_panel = BlackTekUiKit.panel(self, "center", Vector2(340, 300))
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 6)
 	_shop_panel.add_child(box)
@@ -1197,24 +1247,71 @@ func _build_shop() -> void:
 	head.add_child(close)
 	BlackTekUiKit.make_drag_handle(_shop_panel, head)
 	_shop_gold = BlackTekUiKit.label(box, "You carry 0 gold.", 11, GOLD_COLOR)
-	for offer in BlackTekNpc.SHOP_OFFERS:
+	var qty_row := HBoxContainer.new()
+	qty_row.add_theme_constant_override("separation", 8)
+	box.add_child(qty_row)
+	BlackTekUiKit.label(qty_row, "Qty:", 11, Color(0.6, 0.65, 0.72))
+	var qty_slider := HSlider.new()
+	qty_slider.min_value = 1.0
+	qty_slider.max_value = 100.0
+	qty_slider.step = 1.0
+	qty_slider.value = 1.0
+	qty_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	qty_slider.focus_mode = Control.FOCUS_NONE
+	qty_slider.tooltip_text = "Trade quantity for the Buy/Sell buttons"
+	qty_row.add_child(qty_slider)
+	_shop_qty_label = BlackTekUiKit.label(qty_row, "1x", 11, GOLD_COLOR)
+	_shop_qty_label.custom_minimum_size = Vector2(36, 0)
+	_shop_qty_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	qty_slider.value_changed.connect(func(v: float):
+		_shop_qty = maxi(1, int(round(v)))
+		_shop_qty_label.text = "%dx" % _shop_qty
+		refresh_shop_gold())
+	_shop_rows = VBoxContainer.new()
+	_shop_rows.add_theme_constant_override("separation", 6)
+	box.add_child(_shop_rows)
+	_shop_panel.visible = false
+	refresh_shop()
+
+# Rebuild trade rows from the data-driven offers (buy + sell + owned count).
+# Called when the shop opens; lightweight owned-count refresh runs separately.
+func refresh_shop() -> void:
+	if _shop_rows == null:
+		return
+	for c in _shop_rows.get_children():
+		c.queue_free()
+	_shop_offer_rows.clear()
+	if game == null:
+		return
+	for offer in BlackTekNpc.shop_offers(game):
 		var h := HBoxContainer.new()
 		h.add_theme_constant_override("separation", 6)
-		box.add_child(h)
+		_shop_rows.add_child(h)
 		var icon := TextureRect.new()
-		icon.texture = game.get_item_icon(int(offer.itemtype))
+		icon.texture = game.get_item_icon(int(offer.itemtype)) if game != null else null
 		icon.custom_minimum_size = Vector2(32, 32)
 		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		h.add_child(icon)
-		var name_l := BlackTekUiKit.label(h, "%s — %d gp" % [offer.name, int(offer.price)], 11)
-		name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var info := VBoxContainer.new()
+		info.add_theme_constant_override("separation", 0)
+		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		h.add_child(info)
+		BlackTekUiKit.label(info, String(offer.name), 11).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var sub := BlackTekUiKit.label(info, "", 10, Color(0.6, 0.65, 0.72))
+		var owned_l := BlackTekUiKit.label(info, "", 10, GOLD_COLOR)
 		var buy := Button.new()
-		buy.text = "Buy"
 		buy.focus_mode = Control.FOCUS_NONE
-		buy.pressed.connect(func(): game.buy_shop_item(_pid, offer))
+		var o: Dictionary = (offer as Dictionary).duplicate()
+		buy.pressed.connect(func(): game.buy_shop_item(_pid, o, _shop_qty))
 		h.add_child(buy)
-	_shop_panel.visible = false
+		var sell := Button.new()
+		sell.focus_mode = Control.FOCUS_NONE
+		var o2: Dictionary = (offer as Dictionary).duplicate()
+		sell.pressed.connect(func(): game.sell_shop_item(_pid, o2, _shop_qty))
+		h.add_child(sell)
+		_shop_offer_rows.append({"offer": offer, "sub": sub, "owned": owned_l, "buy_btn": buy, "sell_btn": sell})
+	refresh_shop_gold()
 
 func refresh_shop_gold() -> void:
 	if game.players.is_empty():
@@ -1226,6 +1323,33 @@ func refresh_shop_gold() -> void:
 		if not it.is_empty() and int(it.itemtype) == BlackTekActionScripts.GOLD_COIN:
 			gold += int(it.count)
 	_shop_gold.text = "You carry %d gold." % gold
+	# Trade buttons are NPC interactions: without a real NPC in trade range
+	# every row stays disabled (walking away auto-closes the panel anyway).
+	var near_npc: bool = game.can_trade_with_npc(_pid) if game.has_method("can_trade_with_npc") else true
+	var qty: int = maxi(1, _shop_qty)
+	# Lightweight per-row refresh (no rebuild, so button presses never break).
+	for rec in _shop_offer_rows:
+		var offer: Dictionary = rec.offer
+		var buy_p: int = BlackTekConfig.offer_buy_price(offer)
+		var sell_p: int = BlackTekConfig.offer_sell_price(offer)
+		var owned: int = game.shop_stock(_pid, int(offer.itemtype)) if game.has_method("shop_stock") else 0
+		var buy_btn: Button = rec.buy_btn
+		var sell_btn: Button = rec.sell_btn
+		if not near_npc:
+			(rec.sub as Label).text = "Walk up to Norf to trade"
+		else:
+			(rec.sub as Label).text = "Buy %d gp · Sell %d gp" % [buy_p, sell_p] if sell_p > 0 else "Buy %d gp · Norf won't buy this" % buy_p
+		(rec.owned as Label).text = "You: %d · %d gold" % [owned, gold]
+		buy_btn.text = "Buy %dx" % qty
+		buy_btn.tooltip_text = "Buy %dx %s for %d gold" % [qty, String(offer.name), buy_p * qty]
+		if sell_p > 0:
+			sell_btn.text = "Sell %dx" % qty
+			sell_btn.tooltip_text = "Sell %dx %s for %d gold" % [qty, String(offer.name), sell_p * qty]
+		else:
+			sell_btn.text = "No buy"
+			sell_btn.tooltip_text = "Norf doesn't buy %s" % String(offer.name)
+		buy_btn.disabled = (not near_npc) or gold < buy_p * qty
+		sell_btn.disabled = (not near_npc) or sell_p <= 0 or owned < qty
 
 # ---- server signal wiring ------------------------------------------------------------
 
@@ -1247,7 +1371,8 @@ func connect_game() -> void:
 		if _stats_panel.visible:
 			refresh_stats())
 	game.shop_requested.connect(func(_pid: int):
-		refresh_shop_gold()
+		_shop_far_warned = false
+		refresh_shop()
 		show_panel(_shop_panel))
 	game.login_error.connect(func(text: String):
 		if _login.visible:

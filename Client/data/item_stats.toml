@@ -1,0 +1,51 @@
+# BlackTek item stats (data-driven; tooltips + combat math).
+# Unifies server ITEM_STATS + combat WEAPON_ATK/ITEM_ARMOR (they must agree).
+# heal/mana are [min, max] ranges. food/quest are flags.
+
+[[item]]
+itemtype = 2376
+atk = 14
+
+[[item]]
+itemtype = 2190
+atk = 10
+magic = true
+
+[[item]]
+itemtype = 2461
+armor = 1
+
+[[item]]
+itemtype = 2463
+armor = 10
+
+[[item]]
+itemtype = 2467
+armor = 4
+
+[[item]]
+itemtype = 2511
+armor = 9
+shield = true
+
+[[item]]
+itemtype = 2643
+armor = 1
+
+[[item]]
+itemtype = 7618
+heal_min = 100
+heal_max = 160
+
+[[item]]
+itemtype = 7620
+mana_min = 90
+mana_max = 150
+
+[[item]]
+itemtype = 2666
+food = true
+
+[[item]]
+itemtype = 2671
+food = true

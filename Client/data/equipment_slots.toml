@@ -1,0 +1,32 @@
+# BlackTek equipment slots (data-driven; cf. CONST_SLOT_* on the server).
+# itemtype -> equipment slot. Single source for gear panel, HUD and pickup logic.
+# Slots: 1 head, 2 amulet, 3 backpack, 4 armor, 5 right hand, 6 left hand,
+# 7 legs, 8 feet, 9 ring, 10 ammo.
+
+[[slot]]
+itemtype = 2461
+slot = 1
+
+[[slot]]
+itemtype = 2467
+slot = 4
+
+[[slot]]
+itemtype = 2463
+slot = 4
+
+[[slot]]
+itemtype = 2376
+slot = 5
+
+[[slot]]
+itemtype = 2190
+slot = 5
+
+[[slot]]
+itemtype = 2511
+slot = 6
+
+[[slot]]
+itemtype = 2643
+slot = 8

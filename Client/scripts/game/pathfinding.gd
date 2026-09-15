@@ -9,8 +9,15 @@ extends RefCounted
 
 # Step cadence in seconds (matches client key walking): diagonal sidesteps
 # cover sqrt(2)x distance, so they pace slightly slower than cardinal steps.
+# Tuned in data/gameplay.toml; consts are deprecated compat aliases.
 const WALK_CD := 0.15
 const DIAG_WALK_CD := 0.21
+
+static func walk_cd(game) -> float:
+	return game.config.tune("walk_cd") if game.get("config") != null else WALK_CD
+
+static func diag_walk_cd(game) -> float:
+	return game.config.tune("diag_walk_cd") if game.get("config") != null else DIAG_WALK_CD
 
 const DIRS := [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(-1, -1)]
 
@@ -21,7 +28,7 @@ static func request_path(game, pid: int, target: Vector2i) -> int:
 	if target == start:
 		p.path = []
 		return 0
-	if not game.is_walkable(target, z) or not BlackTekMonsters.monster_at(game, target, z).is_empty():
+	if not game.is_walkable(target, z) or not BlackTekMonsters.monster_at(game, target, z).is_empty() or not BlackTekNpc.npc_at(game, target, z).is_empty():
 		return -1
 	# Dijkstra (cf. Game::pathFind): plain BFS only minimizes the step COUNT,
 	# which prefers diagonal zigzags and reads as "weird" routing. The sqrt(2)
@@ -91,11 +98,11 @@ static func path_step(game, pid: int, delta: float) -> void:
 	var dir: Vector2i = next - cur
 	# Diagonal sidesteps cover sqrt(2)x distance, so they pace slower — same
 	# cadence as key walking (0.15 cardinal / 0.21 diagonal).
-	p._walk_cd = BlackTekPath.DIAG_WALK_CD if (dir.x != 0 and dir.y != 0) else BlackTekPath.WALK_CD
+	p._walk_cd = diag_walk_cd(game) if (dir.x != 0 and dir.y != 0) else walk_cd(game)
 	var z: int = int(p.z)
-	var ok: bool = maxi(absi(dir.x), absi(dir.y)) == 1 and game.is_walkable(next, z) and BlackTekMonsters.monster_at(game, next, z).is_empty()
+	var ok: bool = maxi(absi(dir.x), absi(dir.y)) == 1 and game.is_walkable(next, z) and BlackTekMonsters.monster_at(game, next, z).is_empty() and BlackTekNpc.npc_at(game, next, z).is_empty()
 	if not ok:
-		p.path = [] # blocked mid-route (monster moved in): stop
+		p.path = [] # blocked mid-route (creature moved in): stop
 		game.message_local(pid, "You are blocked.")
 		return
 	p.tile = next

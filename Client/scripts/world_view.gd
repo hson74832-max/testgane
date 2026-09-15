@@ -21,6 +21,8 @@ var player_px := Vector2.ZERO
 var floaters: Array = [] # {tile, z, amount, t, player}
 var push: Dictionary = {} # {kind, mid/tile, start} while mouse-pushing
 var press_on_pushable := false # left press began on a pushable (push or nothing, never walk)
+var spell_flashes: Array = [] # {tile, z, t, dur, col} impact squares (exori hit)
+var spell_marks: Array = [] # {tile, z, t, dur} wind-up warning squares (exori warn)
 
 # Engine lighting (cf. OTClient LightView): CanvasModulate tints the whole
 # world canvas by the day phase, PointLight2Ds add smooth round fire pools.
@@ -62,12 +64,33 @@ static func _make_light_texture() -> Texture2D:
 	return ImageTexture.create_from_image(img)
 
 func _process(delta: float) -> void:
-	# Age damage floaters (0.9s life).
+	# Age damage floaters (0.9s life) and spell impact squares (0.6s life).
 	for f in floaters:
 		f.t = float(f.t) + delta
 	floaters = floaters.filter(func(f): return float(f.t) < 0.9)
+	for s in spell_flashes:
+		s.t = float(s.t) + delta
+	spell_flashes = spell_flashes.filter(func(s): return float(s.t) < float(s.dur))
+	for w in spell_marks:
+		w.t = float(w.t) + delta
+	spell_marks = spell_marks.filter(func(w): return float(w.t) < float(w.dur))
 	_update_lights()
 	queue_redraw()
+
+# Spell area feedback: casts emit wind-up marks then impact squares.
+# Footprints come from BlackTekActionScripts.spell_aoe_tiles; the server
+# decides damage via the spell_area signal.
+func on_spell_area(_center: Vector2i, z: int, tiles: Array, kind := "hit") -> void:
+	if kind == "warn":
+		# Wind-up telegraph: show for the tuned delay, then damage lands.
+		var dur := 0.8
+		if server != null and server.get("config") != null:
+			dur = server.config.tune("whirlwind_delay")
+		for t in tiles:
+			spell_marks.append({"tile": t, "z": z, "t": 0.0, "dur": dur})
+		return
+	for t in tiles:
+		spell_flashes.append({"tile": t, "z": z, "t": 0.0, "dur": 0.6, "col": Color(1.0, 0.35, 0.25, 0.9)})
 
 # ---- push input (called from main's input handling) ----------------------------
 
@@ -113,6 +136,10 @@ func _mouse_px() -> Vector2:
 
 func right_click_target() -> void:
 	var t := mouse_tile()
+	var n: Dictionary = server.npc_at(t, server.demo_z)
+	if not n.is_empty():
+		server.interact_npc(LOCAL_PLAYER_ID, int(n.id))
+		return
 	var m: Dictionary = server.monster_at(t, server.demo_z)
 	if not m.is_empty():
 		server.set_target(LOCAL_PLAYER_ID, m)
@@ -222,10 +249,12 @@ func _draw_fallback_map() -> void:
 			draw_rect(r, Color(0, 0, 0, 0.35), false, 1.0)
 	draw_circle(tile_to_px(Vector2i(15, 12)), 6.0, Color(0.3, 1.0, 0.5, 0.5))
 	_draw_monsters()
+	_draw_npcs()
 	_draw_player(player_px)
 	_draw_floaters(Vector2i.ZERO)
 	_draw_push(Vector2i.ZERO)
 	_draw_path(Vector2i.ZERO)
+	_draw_spell_fx(Vector2i.ZERO)
 
 func _draw_real_map() -> void:
 	# Multi-floor painter (cf. OTClient mapview / opentibiabr/otclient):
@@ -294,10 +323,12 @@ func _draw_real_map() -> void:
 					var pp := Vector2(dx2, dy2) * TILE + Vector2(TILE, TILE) * 0.5
 					player_px = player_px.lerp(pp, 0.5)
 	_draw_monsters()
+	_draw_npcs()
 	_draw_player(tile_to_px(player_tile) - Vector2(_view_origin()) * TILE)
 	_draw_floaters(origin)
 	_draw_push(origin)
 	_draw_path(origin)
+	_draw_spell_fx(origin)
 
 func _is_in_view(t: Vector2i) -> bool:
 	if not server.use_real_map:
@@ -338,6 +369,25 @@ func _draw_monsters() -> void:
 			var w := 80.0
 			draw_string(font, mp + Vector2(-w / 2, -28), String(m.name), HORIZONTAL_ALIGNMENT_CENTER, w, 10, hp_col)
 
+# Real NPCs (cf. game/npc.gd): blue marker + name, no HP bar (NPCs are not
+# combat targets). Never targetable, never pushable. Rendered above monsters
+# so Norf stays visible in a crowd.
+func _draw_npcs() -> void:
+	var font := BlackTekUiKit.px_font()
+	for n in server.npcs.values():
+		if int(n.z) != server.demo_z:
+			continue
+		if not _is_in_view(n.tile):
+			continue # outside the 15x11 viewport: not visible, not drawn
+		var np := tile_to_px(n.tile)
+		if server.use_real_map:
+			np -= Vector2(_view_origin()) * TILE
+		draw_circle(np, 11.0, Color(0.3, 0.6, 1.0))
+		draw_arc(np, 13.5, 0.0, TAU, 24, Color(0.75, 0.87, 1.0, 0.95), 2.0)
+		if font != null:
+			var w := 80.0
+			draw_string(font, np + Vector2(-w / 2, -28), String(n.name), HORIZONTAL_ALIGNMENT_CENTER, w, 10, Color(0.6, 0.78, 1.0))
+
 # Yellow dashed circle around the target: sweep fills as the attack timer
 # recharges (full circle = ready to swing).
 func _draw_attack_timer(mp: Vector2, is_target: bool) -> void:
@@ -376,24 +426,83 @@ func _update_lights() -> void:
 	_modulate.color = col
 	# Lights fade with the daylight: full glow at night, fully out at noon, so
 	# torches never blow out a sunlit room (your daylight screenshot).
+	# Everything below is continuous in glow — no visibility toggles — so the
+	# day/night change cross-fades instead of popping.
 	var glow := clampf((0.995 - ambient) / 0.745, 0.0, 1.0)
-	var lit := glow > 0.01
-	_light_layer.visible = lit
-	_player_light.visible = lit
+	# utevo lux test spell: personal light buff, routed through the same
+	# light script as the torch sources below (shared spawn + flicker).
+	var now := Time.get_ticks_msec() / 1000.0
+	var lux := false
+	if server.players.has(LOCAL_PLAYER_ID):
+		lux = float(server.players[LOCAL_PLAYER_ID].get("light_until", 0.0)) > now
+	# The lux lamp only reads well in the dark — on a bright canvas the warm
+	# pool renders as an ugly yellow blob — so it ramps in across a dusk band
+	# instead of snapping on. The buff itself (timer, Lit chip) is unaffected.
+	var lux_level := 0.0
+	if lux:
+		lux_level = glow * clampf((glow - LUX_FADE_LO) / (LUX_FADE_HI - LUX_FADE_LO), 0.0, 1.0)
+	var lit := glow > 0.0005 or lux_level > 0.0005
+	_light_layer.visible = true
+	_player_light.visible = true
 	if not lit:
+		_free_lux_light()
+		_player_light.energy = 0.0
 		return
 	var origin := _view_origin()
 	if origin != _light_origin or server.demo_z != _light_z:
 		_rebuild_torch_lights(origin)
 	# Player light follows the smoothed position; torches shimmer gently.
 	_player_light.position = player_px
-	var now := Time.get_ticks_msec() / 1000.0
 	_player_light.energy = 0.9 * glow * (1.0 + 0.02 * sin(now * 2.1))
+	_update_lux_light(origin, lux, lux_level, now)
 	for key in _torch_lights.keys():
-		var n: PointLight2D = _torch_lights[key]
-		var base: float = float(n.get_meta("base_e", 0.85))
-		var ph: float = float(n.get_meta("phase", 0.0))
-		n.energy = base * glow * (1.0 + 0.05 * sin(now * 3.1 + ph))
+		_apply_flicker(_torch_lights[key] as PointLight2D, glow, now)
+
+# Shared fire flicker (torches and the utevo lux lamp run the same script).
+static func _apply_flicker(n: PointLight2D, glow: float, now: float) -> void:
+	var base: float = float(n.get_meta("base_e", 0.85))
+	var ph: float = float(n.get_meta("phase", 0.0))
+	n.energy = base * glow * (1.0 + 0.05 * sin(now * 3.1 + ph))
+
+# Shared fire-light spawn (torches and the utevo lux lamp are built alike):
+# radial texture, deterministic ember-to-gold tint per tile, gentle flicker.
+func _spawn_fire_light(viewport_px: Vector2, tile: Vector2i, lr: float, base_e := 0.85) -> PointLight2D:
+	var n := PointLight2D.new()
+	n.texture = _light_tex
+	n.position = viewport_px
+	# Deterministic fire tint per tile: deep ember orange to pale gold.
+	var h := float(posmod(tile.x * 73856093 ^ tile.y * 19349663, 100)) / 100.0
+	n.color = Color(1.0, 0.45, 0.10).lerp(Color(1.0, 0.80, 0.50), h)
+	n.set_meta("base_e", base_e)
+	n.set_meta("phase", h * TAU)
+	n.energy = base_e
+	n.texture_scale = 2.0 * lr * TILE / float(LIGHT_TEX_SIZE)
+	_light_layer.add_child(n)
+	return n
+
+# utevo lux lamp: a torch-grade light pinned to the player tile, managed
+# through the same spawn/flicker path as the map sources above. Its level
+# ramps across the dusk band (LUX_FADE_LO..HI) so daybreak never pops.
+const LUX_RADIUS := 4.0
+const LUX_FADE_LO := 0.10
+const LUX_FADE_HI := 0.35
+var _lux_light: PointLight2D = null
+
+func _free_lux_light() -> void:
+	if is_instance_valid(_lux_light):
+		_lux_light.queue_free()
+	_lux_light = null
+
+func _update_lux_light(origin: Vector2i, lux: bool, level: float, now: float) -> void:
+	if not lux:
+		_free_lux_light()
+		return
+	var pt: Vector2i = server.players[LOCAL_PLAYER_ID].tile
+	if not is_instance_valid(_lux_light):
+		_lux_light = _spawn_fire_light(tile_to_px(pt) - Vector2(origin) * TILE, pt, LUX_RADIUS)
+	# Follow the player as the viewport recenters, flicker like a torch.
+	_lux_light.position = tile_to_px(pt) - Vector2(origin) * TILE
+	_apply_flicker(_lux_light, level, now)
 
 func _rebuild_torch_lights(origin: Vector2i) -> void:
 	for key in _torch_lights.keys():
@@ -409,17 +518,7 @@ func _rebuild_torch_lights(origin: Vector2i) -> void:
 			var lr := clampf(float(server.tile_light_radius(wt, server.demo_z)) * 0.55, 0.0, 6.0)
 			if lr <= 0.0:
 				continue
-			var n := PointLight2D.new()
-			n.texture = _light_tex
-			n.position = Vector2(dx, dy) * TILE + half
-			# Deterministic fire tint per tile: deep ember orange to pale gold.
-			var h := float(posmod(wt.x * 73856093 ^ wt.y * 19349663, 100)) / 100.0
-			n.color = Color(1.0, 0.45, 0.10).lerp(Color(1.0, 0.80, 0.50), h)
-			n.set_meta("base_e", 0.85)
-			n.set_meta("phase", h * TAU)
-			n.energy = 0.85
-			n.texture_scale = 2.0 * lr * TILE / float(LIGHT_TEX_SIZE)
-			_light_layer.add_child(n)
+			var n := _spawn_fire_light(Vector2(dx, dy) * TILE + half, wt, lr)
 			_torch_lights[Vector3i(wt.x, wt.y, server.demo_z)] = n
 
 func _draw_path(origin: Vector2i) -> void:
@@ -431,6 +530,27 @@ func _draw_path(origin: Vector2i) -> void:
 		var sp: Vector2 = tile_to_px(step) - Vector2(origin) * TILE
 		if bounds.has_point(sp):
 			draw_circle(sp, 5.0, Color(0.4, 0.9, 1.0, 0.6))
+
+# Spell area feedback (cf. on_spell_area): pulsing yellow wind-up squares
+# while the cast cooks, fading red impact squares when damage lands.
+func _draw_spell_fx(origin: Vector2i) -> void:
+	if server == null:
+		return
+	if hud != null and hud.in_game:
+		var now_marks := Time.get_ticks_msec() / 1000.0
+		for w in spell_marks:
+			if int(w.z) != server.demo_z:
+				continue
+			var wp: Vector2 = tile_to_px(w.tile) - Vector2(origin) * TILE
+			var pulse: float = 0.45 + 0.3 * sin(now_marks * 9.0)
+			draw_rect(Rect2(wp - Vector2(16, 16), Vector2(32, 32)), Color(1.0, 0.8, 0.25, pulse), false, 2.0)
+		for s in spell_flashes:
+			if int(s.z) != server.demo_z:
+				continue
+			var fp: Vector2 = tile_to_px(s.tile) - Vector2(origin) * TILE
+			var left: float = clampf(1.0 - float(s.t) / float(s.dur), 0.0, 1.0)
+			var c: Color = s.col
+			draw_rect(Rect2(fp - Vector2(16, 16), Vector2(32, 32)), Color(c.r, c.g, c.b, c.a * left), false, 2.0)
 
 # Shared push preview: outline of the destination SQM (where the pushed thing
 # would land) plus an arrow along the true mouse direction. Green = release

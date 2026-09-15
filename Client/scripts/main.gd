@@ -49,6 +49,7 @@ func _ready() -> void:
 		hud.chat_line("System", "Placeholder graphics (no Tibia.spr). Walkability from assets.dat blockSolid.")
 	server.world_entered.connect(_on_world_entered)
 	server.damage_float.connect(func(pos, z, amount, from_player): view.on_damage_float(pos, z, amount, from_player))
+	server.spell_area.connect(func(center, z, tiles, kind): view.on_spell_area(center, z, tiles, kind))
 	# Keep the rendered position glued to the server: click-to-walk path steps,
 	# teleports, stairs and respawns all emit this (manual steps set it directly
 	# too — same value, harmless). Without it the player dot freezes during
@@ -187,7 +188,7 @@ func _on_world_entered(pid: int) -> void:
 	hud.update_status()
 	hud.refresh_inventory()
 	hud.game_message("Map: %s" % server.stats_text)
-	hud.game_message("Space = target next creature (auto-attacks adjacent targets). Right-click = target. Hold left click on an adjacent creature + drag to push it (or drag from yourself to quick-step). F1-F5 potions/spells, F6 attack.")
+	hud.game_message("Space = target next creature (auto-attacks adjacent targets). Right-click = target. Hold left click on an adjacent creature + drag to push it (or drag from yourself to quick-step). F1-F3 potions, F4-F6 spells/attack, F7-F9 test spells (light/cure/whirlwind).")
 
 # ---- input ---------------------------------------------------------------------
 
@@ -286,6 +287,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			hud.activate_slot(1, 1)
 		KEY_F6:
 			hud.activate_slot(1, 2) # attack slot
+		KEY_F7:
+			hud.activate_slot(2, 0) # test spells: magic light
+		KEY_F8:
+			hud.activate_slot(2, 1) # test spells: cure poison
+		KEY_F9:
+			hud.activate_slot(2, 2) # test spells: whirlwind
 		KEY_PAGEUP:
 			_change_floor(-1)
 		KEY_PAGEDOWN:

@@ -1,0 +1,48 @@
+# BlackTek gameplay tuning (data-driven; was hardcoded across server.gd,
+# world.gd, monsters.gd, pathfinding.gd, npc.gd).
+# Times in seconds, distances in tiles.
+
+# Creature push cooldown (mouse-drag shove, per-monster).
+push_cd = 2.0
+
+# Ambient day/night (full cycle, 4x slower than 240s; 0 = noon start offset).
+day_cycle = 960.0
+day_start = 50.0
+day_min = 0.25
+# Surface night floor (floors z<=7): aboveground nights stay readable while
+# dungeons (z>7) keep the full 0.25 darkness. Slight lift only.
+day_min_surface = 0.45
+
+# Local chat hearing radius (tiles, same floor).
+say_range = 9
+
+# NPC trade radius (tiles, same floor, Chebyshev). Buying, selling and the
+# shop window all require a real NPC this close — chatting works to say_range.
+trade_range = 3
+
+# Monster spawn pacing.
+max_monsters = 3
+respawn_s = 6.0
+
+# Step cadence (diagonals cover sqrt(2)x distance, paced slower).
+walk_cd = 0.15
+diag_walk_cd = 0.21
+
+# Whirlwind telegraph: warning squares show this long before damage lands.
+whirlwind_delay = 0.8
+
+# Fallback map size when OTBM is unavailable (real map overrides this).
+map_w = 30
+map_h = 22
+
+# Fallback walls (border + demo obstacles, replaces OTBM load).
+# Stored as ranges so the layout stays editable without touching code.
+[[wall_h]]
+x_from = 8
+x_to = 13
+y = 8
+
+[[wall_v]]
+x = 18
+y_from = 12
+y_to = 16

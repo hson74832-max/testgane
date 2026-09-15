@@ -1,6 +1,8 @@
 # BlackTek monsters: archetype data (data/monster_definitions.toml), spawn and
 # respawn, AI movement/attacks per tick, occupancy checks and pushing.
 # Stateless algorithms — creature tables and timers live on the game server.
+# Tuning (max_monsters/respawn_s/push_cd) comes from BlackTekConfig
+# (data/gameplay.toml); consts below are deprecated compat aliases.
 class_name BlackTekMonsters
 extends RefCounted
 
@@ -62,8 +64,20 @@ static func archetype(_game, name := "Rat") -> Dictionary:
 		return _defs[name]
 	return _defs.get("Rat", FALLBACK_RAT.duplicate())
 
+static func max_monsters(game) -> int:
+	return game.config.tune_int("max_monsters") if game.get("config") != null else MAX_MONSTERS
+
+static func respawn_s(game) -> float:
+	return game.config.tune("respawn_s") if game.get("config") != null else RESPAWN_S
+
+static func push_cd(game) -> float:
+	# Prefers server.push_cd() (config), falls back to the legacy const.
+	if game.has_method("push_cd"):
+		return game.push_cd()
+	return game.config.tune("push_cd") if game.get("config") != null else BlackTekGameServer.PUSH_CD
+
 static func try_spawn(game, pid: int) -> void:
-	if game.monsters.size() >= MAX_MONSTERS:
+	if game.monsters.size() >= max_monsters(game):
 		return
 	var p: Dictionary = game.players[pid]
 	for _attempt in range(24):
@@ -136,6 +150,8 @@ static func tile_free_for_monster(game, tile: Vector2i, z: int, ignore_id := 0) 
 		return false
 	if not BlackTekMonsters.monster_at(game, tile, z, ignore_id).is_empty():
 		return false
+	if not BlackTekNpc.npc_at(game, tile, z).is_empty():
+		return false
 	for pl in game.players.values():
 		if int(pl.z) == z and pl.tile == tile:
 			return false
@@ -177,7 +193,7 @@ static func push_monster(game, mid: int, dir: Vector2i, pid: int) -> bool:
 	if not BlackTekMonsters.can_push_monster(game, mid, dir):
 		game.message_local(pid, "You cannot push the creature there.")
 		return false
-	m.push_cd = now + game.PUSH_CD
+	m.push_cd = now + push_cd(game)
 	m.tile = m.tile + dir
 	game.message_local(pid, "You push the %s %s." % [String(m.name), BlackTekGameServer.dir_name(dir)])
 	return true

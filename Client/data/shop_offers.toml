@@ -1,0 +1,27 @@
+# BlackTek NPC shop (data-driven; mirrors data/npc + npcsystem on the server).
+# Norf the shopkeeper at the temple. Prices in gold coins (itemtype 2148).
+# buy_price: what Norf charges you. sell_price: what he pays you (0 = won't buy).
+
+[[offer]]
+itemtype = 7618
+buy_price = 50
+sell_price = 20
+name = "health potion"
+
+[[offer]]
+itemtype = 7620
+buy_price = 50
+sell_price = 20
+name = "mana potion"
+
+[[offer]]
+itemtype = 2666
+buy_price = 8
+sell_price = 3
+name = "meat"
+
+[[offer]]
+itemtype = 2671
+buy_price = 12
+sell_price = 5
+name = "ham"

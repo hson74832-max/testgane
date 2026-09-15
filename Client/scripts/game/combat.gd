@@ -1,11 +1,32 @@
 # BlackTek combat: weapon/armor math, targeting, melee swings, monster
 # attacks, damage floats and death. Stateless — fighters live on the server.
+# Stats come from BlackTekConfig (data/item_stats.toml + data/vocations.toml);
+# consts below are deprecated compat aliases.
 class_name BlackTekCombat
 extends RefCounted
 
 # Weapons/armor by client item id (cf. items.toml): sword 2376, wand 2190.
 const WEAPON_ATK := {2376: 14, 2190: 10}
 const ITEM_ARMOR := {2461: 1, 2463: 10, 2467: 4, 2511: 9, 2643: 1}
+
+static func weapon_atk(game, itemtype: int) -> int:
+	if game.get("config") != null:
+		var a: int = (game.config as BlackTekConfig).weapon_atk(itemtype)
+		if a > 0 or itemtype == 0:
+			return a if itemtype != 0 else 3
+		# Unknown weapon: legacy default damage.
+		return 3 if itemtype == 0 else 0
+	return int(WEAPON_ATK.get(itemtype, 3 if itemtype == 0 else 0))
+
+static func piece_armor(game, itemtype: int) -> int:
+	if game.get("config") != null:
+		return (game.config as BlackTekConfig).item_armor(itemtype)
+	return int(ITEM_ARMOR.get(itemtype, 0))
+
+static func attack_speed(game, vocation: int) -> float:
+	if game.get("config") != null:
+		return float((game.config as BlackTekConfig).vocation(vocation).attack_speed)
+	return float(BlackTekGameServer.VOCATIONS[vocation].attack_speed)
 
 static func equipped_weapon(game, pid: int) -> int:
 	var w: Dictionary = game.players[pid].inv.get(5) if game.players[pid].inv.get(5) != null else {} # CONST_SLOT_RIGHT = 5
@@ -17,7 +38,7 @@ static func total_armor(game, pid: int) -> int:
 	for slot in [1, 4, 6, 7, 8]:
 		var it: Dictionary = p.inv.get(slot) if p.inv.get(slot) != null else {}
 		if not it.is_empty():
-			armor += int(BlackTekCombat.ITEM_ARMOR.get(int(it.itemtype), 0))
+			armor += piece_armor(game, int(it.itemtype))
 	return armor
 
 static func nearest_monster(game, pid: int, max_tiles := 1) -> Dictionary:
@@ -75,15 +96,15 @@ static func attack_current_target(game, pid: int) -> void:
 static func melee_swing(game, pid: int, m: Dictionary) -> void:
 	var p: Dictionary = game.players[pid]
 	var now := Time.get_ticks_msec() / 1000.0
-	p.attack_cd = now + float(BlackTekGameServer.VOCATIONS[int(p.vocation)].attack_speed)
+	p.attack_cd = now + attack_speed(game, int(p.vocation))
 	BlackTekCombat.set_target(game, pid, m)
-	var weapon := BlackTekCombat.equipped_weapon(game, pid)
+	var weapon: int = BlackTekCombat.equipped_weapon(game, pid)
 	var dmg := 0
 	if weapon == 2190: # wand of vortex: magic damage scaled by magic level
 		dmg = randi_range(int(p.maglevel) + 2, 8 + int(p.maglevel) * 4)
 	else:
 		var skill := int(p.skills.get("sword", 10))
-		var atk := int(BlackTekCombat.WEAPON_ATK.get(weapon, 3))
+		var atk: int = weapon_atk(game, weapon)
 		dmg = randi_range(maxi(1, skill / 2), skill + atk / 2 + int(p.level) / 5)
 		BlackTekPlayer.advance_skill(game, pid, "sword")
 	BlackTekCombat.damage_monster(game, int(m.id), dmg, "melee", pid)
@@ -124,7 +145,7 @@ static func kill_monster(game, mid: int, pid: int) -> void:
 	game.monsters.erase(mid)
 	game.target_changed.emit(pid, {})
 	var spec := BlackTekMonsters.archetype(game, String(m.name))
-	var exp_gain := int(float(spec.get("exp", 8)) * BlackTekGameServer.RATE_EXP * BlackTekGameServer.RATE_STAGE)
+	var exp_gain: int = int(float(spec.get("exp", 8)) * game.config.rate("exp") * game.config.rate("stage")) if game.get("config") != null else int(float(spec.get("exp", 8)) * BlackTekGameServer.RATE_EXP * BlackTekGameServer.RATE_STAGE)
 	var p: Dictionary = game.players[pid]
 	p.exp = int(p.exp) + exp_gain
 	game.message_local(pid, "You defeated the %s and gained %d experience." % [String(m.name), exp_gain])
@@ -138,13 +159,18 @@ static func gain_exp(game, pid: int) -> void:
 	while int(p.exp) >= BlackTekPlayer.exp_for_level(int(p.level) + 1):
 		p.level = int(p.level) + 1
 		var voc: int = int(p.vocation)
-		p.hpmax = BlackTekPlayer.max_hp(voc, int(p.level))
-		p.manamax = BlackTekPlayer.max_mana(voc, int(p.level))
+		p.hpmax = BlackTekPlayer.max_hp_for(game, voc, int(p.level))
+		p.manamax = BlackTekPlayer.max_mana_for(game, voc, int(p.level))
 		p.hp = p.hpmax
 		p.mana = p.manamax
-		p.cap = 400 + int(BlackTekGameServer.VOCATIONS[voc].per_level.cap) * (int(p.level) - 1)
+		p.cap = 400 + int(vocation_cap(game, voc)) * (int(p.level) - 1)
 		game.level_up.emit(pid, int(p.level))
 		game.message_local(pid, "You advanced from level %d to %d!" % [int(p.level) - 1, int(p.level)])
+
+static func vocation_cap(game, voc: int) -> int:
+	if game.get("config") != null:
+		return int((game.config as BlackTekConfig).vocation(voc).per_level.cap)
+	return int(BlackTekGameServer.VOCATIONS[voc].per_level.cap)
 
 static func monster_attack(game, m: Dictionary, pid: int) -> void:
 	var p: Dictionary = game.players[pid]
@@ -173,6 +199,7 @@ static func player_death(game, pid: int) -> void:
 	p.hp = int(p.hpmax)
 	p.mana = int(p.manamax)
 	p.poison_until = 0.0
+	p.light_until = 0.0
 	p.target = 0
 	game.target_changed.emit(pid, {})
 	for m in game.monsters.values():

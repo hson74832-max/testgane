@@ -1,7 +1,13 @@
 # BlackTek regeneration ticks: poison damage plus hp/mana regen per vocation
 # intervals (food halves the interval, demo rule). Called from the tick.
+# Vocation table comes from BlackTekConfig (data/vocations.toml).
 class_name BlackTekRegen
 extends RefCounted
+
+static func vocation_regen(game, vocation: int) -> Dictionary:
+	if game.get("config") != null:
+		return (game.config as BlackTekConfig).vocation(vocation).regen
+	return BlackTekGameServer.VOCATIONS[vocation].regen
 
 static func tick(game, pid: int, delta: float, now: float) -> void:
 	var p: Dictionary = game.players[pid]
@@ -20,7 +26,7 @@ static func tick(game, pid: int, delta: float, now: float) -> void:
 			else:
 				game.stats_changed.emit(pid)
 		p[pt] = ptv
-	var regen: Dictionary = BlackTekGameServer.VOCATIONS[int(p.vocation)].regen
+	var regen: Dictionary = vocation_regen(game, int(p.vocation))
 	_regen(game, p, pid, "hp", float(regen.hp[1]) / (2.0 if fed else 1.0), int(regen.hp[0]), delta)
 	_regen(game, p, pid, "mana", float(regen.mana[1]) / (2.0 if fed else 1.0), int(regen.mana[0]), delta)
 

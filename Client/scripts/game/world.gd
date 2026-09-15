@@ -10,6 +10,8 @@ const SprLoader := preload("res://scripts/game/loaders/spr_loader.gd")
 
 const MAP_W := 30
 const MAP_H := 22
+# NOTE: fallback map size/tuning is authoritative in data/gameplay.toml
+# (BlackTekConfig); consts here stay as compat defaults for the no-OTBM path.
 
 var walls: Dictionary = {} # fallback Vector2i -> true
 var dat: BlackTekDat

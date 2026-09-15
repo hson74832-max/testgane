@@ -1,0 +1,8 @@
+# BlackTek rates (data-driven; mirrors config/rates.toml + stages.toml on the server).
+# Demo applies the first stage (levels 1-8) multiplier on top of exp rate.
+
+exp = 5.0
+stage = 7.0
+skill = 3.0
+magic = 3.0
+loot = 2.0

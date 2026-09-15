@@ -68,6 +68,7 @@ static func _flush_entry(cur: Dictionary, out: Array) -> void:
 # Roll one monster's table: chance per entry, count x loot rate when scaled.
 static func grant(game, pid: int, monster_name: String) -> void:
 	BlackTekLoot.ensure_loaded()
+	var loot_rate: float = game.config.rate("loot") if game.get("config") != null else BlackTekGameServer.RATE_LOOT
 	for e in _tables:
 		if String(e.get("monster", "")) != monster_name:
 			continue
@@ -75,7 +76,7 @@ static func grant(game, pid: int, monster_name: String) -> void:
 			continue
 		var n := randi_range(int(e.get("min", 1)), int(e.get("max", 1)))
 		if bool(e.get("scaled", false)):
-			n *= int(BlackTekGameServer.RATE_LOOT)
+			n *= int(loot_rate)
 		if n <= 0:
 			continue
 		if game.add_item(pid, int(e.get("itemtype", 0)), n):

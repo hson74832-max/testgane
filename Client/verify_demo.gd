@@ -64,6 +64,40 @@ func _initialize() -> void:
 	srv.scripts.cast_spell(srv, 1, "exura")
 	_check("exura exhausted on second cast", int(srv.players[1].hp) == hp_mid)
 
+	# ---- test spells (utevo lux / exana pox / exura gran / exori) ----
+	srv.players[1].mana = 100
+	(srv.players[1].cooldowns as Dictionary).clear()
+	var luxed: bool = srv.scripts.cast_spell(srv, 1, "utevo lux")
+	_check("utevo lux grants light", luxed and float(srv.players[1].light_until) > Time.get_ticks_msec() / 1000.0)
+	srv.players[1].mana = 100
+	(srv.players[1].cooldowns as Dictionary).clear()
+	srv.players[1].poison_until = Time.get_ticks_msec() / 1000.0 + 30.0
+	_check("exana pox cures poison", srv.scripts.cast_spell(srv, 1, "exana pox") and not srv.is_poisoned(1))
+	srv.players[1].hp = 50
+	srv.players[1].mana = 100
+	(srv.players[1].cooldowns as Dictionary).clear()
+	_check("exura gran heals big", srv.scripts.cast_spell(srv, 1, "exura gran") and int(srv.players[1].hp) > 50)
+	srv.players[1].mana = 100
+	(srv.players[1].cooldowns as Dictionary).clear()
+	_check("hotbar flame alias handled", srv.scripts.cast_spell(srv, 1, "flame"))
+	srv.players[1].mana = 100
+	(srv.players[1].cooldowns as Dictionary).clear()
+	srv.monsters[776001] = {"id": 776001, "name": "Rat", "tile": srv.players[1].tile + Vector2i(1, 0), "z": int(srv.players[1].z), "hp": 3, "hpmax": 25, "move_cd": 0.0, "attack_cd": 99.0, "target_pid": 0}
+	var area_warn: Array = []
+	var area_hit: Array = []
+	srv.spell_area.connect(func(_c: Vector2i, _z: int, tiles: Array, kind: String):
+		if kind == "warn":
+			area_warn.assign(tiles)
+		else:
+			area_hit.assign(tiles))
+	srv.scripts.cast_spell(srv, 1, "exori")
+	_check("exori warns 8 tiles first", area_warn.size() == 8 and (srv.players[1].tile + Vector2i(1, 0)) in area_warn)
+	_check("exori damage waits out wind-up", srv.monsters.has(776001))
+	srv.tick(1.0)
+	_check("exori kills adjacent rat", not srv.monsters.has(776001))
+	_check("exori impact flashes 8 tiles", area_hit.size() == 8 and (srv.players[1].tile + Vector2i(1, 0)) in area_hit)
+	_check("aoe helper matches telegraph", BlackTekActionScripts.spell_aoe_tiles(srv.players[1].tile, "exori").size() == 8)
+
 	# ---- talkactions ----
 	srv.scripts.handle_talk(srv, 1, "/pos")
 	_check("talkaction /pos handled", true)

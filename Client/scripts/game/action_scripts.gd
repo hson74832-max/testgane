@@ -38,8 +38,32 @@ func _init() -> void:
 	talkactions["/night"] = {"src": "demo: set ambient light to night", "gm": false, "run": _talk_night}
 
 	# ---- data/scripts/spells (instant player spells) -------------------------
+	# Test set: exura (small heal) + exura gran (big heal), exana pox (cure),
+	# utevo lux (personal light for night testing), exori flam (single-target
+	# strike), exori (whirlwind hitting everything adjacent). All min_level 0
+	# so they are usable straight away at demo level 8.
 	spells["exura"] = {"src": "spells/scripts/healing/heal.lua (words exura)", "mana": 20, "min_level": 0, "cooldown_s": 1.0, "run": _spell_heal}
+	spells["exura gran"] = {"src": "spells/scripts/healing/ultimate heal.lua (words exura gran)", "mana": 40, "min_level": 0, "cooldown_s": 1.0, "run": _spell_gran_heal}
+	spells["exana pox"] = {"src": "spells/scripts/healing/cure poison.lua (words exana pox)", "mana": 15, "min_level": 0, "cooldown_s": 1.0, "run": _spell_cure_poison}
+	spells["utevo lux"] = {"src": "spells/scripts/support/magic light.lua (words utevo lux)", "mana": 10, "min_level": 0, "cooldown_s": 1.0, "run": _spell_magic_light}
 	spells["exori flam"] = {"src": "spells/scripts/attack/flame strike.lua (words exori flam)", "mana": 20, "min_level": 12, "cooldown_s": 2.0, "run": _spell_flame_strike}
+	spells["exori"] = {"src": "spells/scripts/attack/berserk.lua (words exori)", "mana": 30, "min_level": 0, "cooldown_s": 2.0, "run": _spell_whirlwind}
+
+# Hotbar shorthand: the F5 slot sends "flame", which is the classic short
+# form of "exori flam". Aliases resolve before the registry lookup.
+const SPELL_ALIASES := {"flame": "exori flam"}
+
+# AoE footprint per spell words (pure, shared by the caster and the hover
+# warning in the world view). exori hits the 8 tiles around the caster.
+static func spell_aoe_tiles(center: Vector2i, words: String) -> Array:
+	if words == "exori":
+		var out := []
+		for dy in range(-1, 2):
+			for dx in range(-1, 2):
+				if dx != 0 or dy != 0:
+					out.append(center + Vector2i(dx, dy))
+		return out
+	return []
 
 # ---- dispatch (cf. Game::useItem -> actions::registerAction callbacks) ------
 
@@ -67,6 +91,7 @@ func handle_talk(game, pid: int, text: String) -> bool:
 
 func cast_spell(game, pid: int, text: String) -> bool:
 	var words := text.strip_edges().to_lower()
+	words = String(SPELL_ALIASES.get(words, words))
 	var s: Dictionary = spells.get(words, {})
 	if s.is_empty():
 		return false
@@ -158,6 +183,36 @@ func _spell_heal(game, pid: int) -> bool:
 	game.heal_player(pid, amount, "spell")
 	return true
 
+# Test spell: big single-target heal (no level gate so it works at demo level).
+func _spell_gran_heal(game, pid: int) -> bool:
+	var p: Dictionary = game.players.get(pid, {})
+	var mlvl := int(p.get("maglevel", 0))
+	var amount: int = game.vocation_roll(pid, 90 + 8 * mlvl, 150 + 12 * mlvl)
+	game.spend_mana(pid, int(spells["exura gran"].mana))
+	game.heal_player(pid, amount, "spell")
+	return true
+
+# Test spell: cure poison (rats poison — handy without antidotes).
+func _spell_cure_poison(game, pid: int) -> bool:
+	var p: Dictionary = game.players.get(pid, {})
+	game.spend_mana(pid, int(spells["exana pox"].mana))
+	if float(p.get("poison_until", 0.0)) > Time.get_ticks_msec() / 1000.0:
+		p.poison_until = 0.0
+		game.message_local(pid, "You are cleansed of poison.")
+	else:
+		game.message_local(pid, "You feel a warm tingle (no poison to cure).")
+	game.stats_changed.emit(pid)
+	return true
+
+# Test spell: personal light for 120s (night testing without torch hunting).
+func _spell_magic_light(game, pid: int) -> bool:
+	var p: Dictionary = game.players.get(pid, {})
+	game.spend_mana(pid, int(spells["utevo lux"].mana))
+	p.light_until = Time.get_ticks_msec() / 1000.0 + 120.0
+	game.message_local(pid, "A warm light surrounds you for 120 seconds.")
+	game.stats_changed.emit(pid)
+	return true
+
 func _spell_flame_strike(game, pid: int) -> bool:
 	var target: Dictionary = game.nearest_monster(pid, 5)
 	if target.is_empty():
@@ -169,3 +224,67 @@ func _spell_flame_strike(game, pid: int) -> bool:
 	game.spend_mana(pid, int(spells["exori flam"].mana))
 	game.damage_monster(int(target.get("id", 0)), dmg, "flame strike", pid)
 	return true
+
+# Test spell: whirlwind with a wind-up telegraph. Cast shows warning squares
+# for whirlwind_delay, then damage lands on whatever stands in the area.
+# Mana/cooldown are spent up front; magic level is snapshotted at cast.
+func _spell_whirlwind(game, pid: int) -> bool:
+	var p: Dictionary = game.players.get(pid, {})
+	var has_foe := false
+	for m in game.monsters.values():
+		if int(m.z) != int(p.z):
+			continue
+		if maxi(absi(int(m.tile.x) - int(p.tile.x)), absi(int(m.tile.y) - int(p.tile.y))) <= 1:
+			has_foe = true
+			break
+	if not has_foe:
+		game.message_local(pid, "You need enemies next to you.")
+		return true
+	game.spend_mana(pid, int(spells["exori"].mana))
+	var delay: float = game.config.tune("whirlwind_delay") if game.get("config") != null else 0.8
+	var area: Array = BlackTekActionScripts.spell_aoe_tiles(p.tile, "exori")
+	game.pending_spells.append({"kind": "exori", "center": p.tile, "z": int(p.z),
+		"pid": pid, "mlvl": int(p.get("maglevel", 0)), "left": delay})
+	game.spell_area.emit(p.tile, int(p.z), area, "warn")
+	game.message_local(pid, "You gather the winds...")
+	return true
+
+# Wind-up driver (called from the server tick with frame delta): anchored
+# telegraphs count down, then damage lands on the stored tiles.
+static func tick_pending(game, delta: float) -> void:
+	if game.pending_spells.is_empty():
+		return
+	var due := []
+	for pend in game.pending_spells:
+		pend.left = float(pend.left) - delta
+		if float(pend.left) <= 0.0:
+			due.append(pend)
+	for pend in due:
+		game.pending_spells.erase(pend)
+		if String(pend.kind) == "exori":
+			_execute_whirlwind(game, pend)
+
+static func _execute_whirlwind(game, pend: Dictionary) -> void:
+	var pid: int = int(pend.pid)
+	if not game.players.has(pid):
+		return
+	var center: Vector2i = pend.center
+	var z: int = int(pend.z)
+	var mlvl: int = int(pend.mlvl)
+	game.spell_area.emit(center, z, BlackTekActionScripts.spell_aoe_tiles(center, "exori"), "hit")
+	var hits := 0
+	for m in game.monsters.values().duplicate():
+		var mm: Dictionary = m
+		if int(mm.z) != z:
+			continue
+		if maxi(absi(int(mm.tile.x) - center.x), absi(int(mm.tile.y) - center.y)) > 1:
+			continue
+		if mm.tile == center:
+			continue
+		var dmg: int = game.vocation_roll(pid, 8 + 2 * mlvl, 20 + 4 * mlvl)
+		game.damage_monster(int(mm.id), dmg, "whirlwind", pid)
+		hits += 1
+	if hits > 0:
+		game.message_local(pid, "Your whirlwind hits %d target(s)." % hits)
+	else:
+		game.message_local(pid, "Your whirlwind hits nothing.")
