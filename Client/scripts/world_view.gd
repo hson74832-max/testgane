@@ -84,9 +84,11 @@ func is_pushable_tile(t: Vector2i) -> bool:
 	return maxi(absi(t.x - player_tile.x), absi(t.y - player_tile.y)) <= 1
 
 # Push targets (push.kind): "mon" (adjacent creature), "self" (your own tile
-# -> quick-step 1 SQM, same rules as key walking), "item" (topmost movable
-# map object on an adjacent tile -> shoved 1 SQM). Anything further away is
-# rejected so distant things can never be pushed (abuse) or show push UI.
+# -> quick-step 1 SQM, same rules as key walking), "item" (a movable and/or
+# takeable floor object on an adjacent tile). Release over the open gear
+# panel to TAKE it into the backpack, anywhere else to SHOVE it 1 SQM.
+# Anything further away is rejected so distant things can never be pushed
+# (abuse) or show push UI.
 func try_begin_push() -> void:
 	press_on_pushable = false
 	var t := mouse_tile()
@@ -95,7 +97,7 @@ func try_begin_push() -> void:
 		if t == player_tile:
 			press_on_pushable = true
 			push = {"kind": "self", "start": _mouse_px()}
-		elif is_pushable_tile(t) and not server.pushable_item_at(t, server.demo_z).is_empty():
+		elif is_pushable_tile(t) and (not server.pushable_item_at(t, server.demo_z).is_empty() or not server.takeable_item_at(t, server.demo_z).is_empty()):
 			press_on_pushable = true
 			push = {"kind": "item", "tile": t, "start": _mouse_px()}
 		return
@@ -154,6 +156,7 @@ func finish_push() -> void:
 	if kind == "self":
 		# Self-push: quick-step 1 SQM (same validation as key walking, stairs
 		# included; the view also follows via the player_moved signal).
+		# A refusal is messaged with its reason instead of silent nothing.
 		var before: Vector2i = server.players[LOCAL_PLAYER_ID].tile
 		var stepped: Vector2i = server.request_move(LOCAL_PLAYER_ID, dir)
 		if stepped != before:
@@ -164,8 +167,19 @@ func finish_push() -> void:
 				if hud != null:
 					hud.fade()
 					hud.game_message("Took stairs (z=%d)." % nz)
+		else:
+			var why := server.step_blocker(LOCAL_PLAYER_ID, dir)
+			if why == "pinched corner" or why == "creature in the way":
+				server.message_local(LOCAL_PLAYER_ID, "You cannot step there (%s)." % why)
+			elif why != "" and why != "no session" and why != "no direction":
+				server.message_local(LOCAL_PLAYER_ID, "Blocked by %s." % why)
 		return
 	if kind == "item":
+		# Release over the open gear panel takes it into the backpack,
+		# anywhere else shoves it 1 SQM in the drag direction.
+		if hud != null and hud.is_over_gear():
+			server.pickup_item(grabbed, server.demo_z, LOCAL_PLAYER_ID)
+			return
 		server.push_item(grabbed, dir, server.demo_z, LOCAL_PLAYER_ID)
 		return
 	server.push_monster(mid, dir, LOCAL_PLAYER_ID)
@@ -360,7 +374,10 @@ func _update_lights() -> void:
 	var col := Color(0.10, 0.12, 0.22).lerp(Color.WHITE, t)
 	col = col.lerp(Color(0.30, 0.15, 0.10), twilight * (1.0 - t) * 0.5)
 	_modulate.color = col
-	var lit := ambient < 0.995
+	# Lights fade with the daylight: full glow at night, fully out at noon, so
+	# torches never blow out a sunlit room (your daylight screenshot).
+	var glow := clampf((0.995 - ambient) / 0.745, 0.0, 1.0)
+	var lit := glow > 0.01
 	_light_layer.visible = lit
 	_player_light.visible = lit
 	if not lit:
@@ -371,12 +388,12 @@ func _update_lights() -> void:
 	# Player light follows the smoothed position; torches shimmer gently.
 	_player_light.position = player_px
 	var now := Time.get_ticks_msec() / 1000.0
-	_player_light.energy = 0.9 * (1.0 + 0.02 * sin(now * 2.1))
+	_player_light.energy = 0.9 * glow * (1.0 + 0.02 * sin(now * 2.1))
 	for key in _torch_lights.keys():
 		var n: PointLight2D = _torch_lights[key]
 		var base: float = float(n.get_meta("base_e", 0.85))
 		var ph: float = float(n.get_meta("phase", 0.0))
-		n.energy = base * (1.0 + 0.05 * sin(now * 3.1 + ph))
+		n.energy = base * glow * (1.0 + 0.05 * sin(now * 3.1 + ph))
 
 func _rebuild_torch_lights(origin: Vector2i) -> void:
 	for key in _torch_lights.keys():
@@ -457,23 +474,33 @@ func _draw_push(origin: Vector2i) -> void:
 	_draw_push_arrow(mp, not cooling and server.can_push_monster(mid, dir_i), tile_to_px(m.tile + dir_i) - Vector2(origin) * TILE)
 
 # Self-push preview: ring around the player, green when the step tile is free.
+# Uses the exact server step validation (walkability + occupancy, dest-only
+# like the real server), so green always means the release will move you.
 func _draw_self_push(origin: Vector2i) -> void:
 	var pp := tile_to_px(player_tile) - Vector2(origin) * TILE
 	draw_arc(pp, 15.0, 0.0, TAU, 24, Color(0.4, 0.9, 1.0, 0.9), 2.5)
 	var dir_i := _push_drag_dir()
 	if dir_i == Vector2i.ZERO:
 		return
-	var dest := player_tile + dir_i
-	_draw_push_arrow(pp, server.is_walkable(dest, server.demo_z) and server.monster_at(dest, server.demo_z).is_empty(), tile_to_px(dest) - Vector2(origin) * TILE)
+	_draw_push_arrow(pp, server.can_step(LOCAL_PLAYER_ID, dir_i), tile_to_px(player_tile + dir_i) - Vector2(origin) * TILE)
 
-# Item-push preview: ring around the grabbed tile, green when the shove works.
+# Floor-item preview: ring around the grabbed tile. Hovering the open gear
+# panel previews the TAKE (green = fits, red = full backpack); anywhere else
+# previews the SHOVE with its destination SQM highlighted.
 func _draw_item_push(origin: Vector2i) -> void:
 	var t: Vector2i = push.get("tile", player_tile)
 	if not is_pushable_tile(t):
 		push = {}
 		return
+	if server.pushable_item_at(t, server.demo_z).is_empty() and server.takeable_item_at(t, server.demo_z).is_empty():
+		push = {} # item moved on while dragging: no UI
+		return
 	var tp := tile_to_px(t) - Vector2(origin) * TILE
 	draw_arc(tp, 15.0, 0.0, TAU, 24, Color(1.0, 0.85, 0.3, 0.9), 2.5)
+	if hud != null and hud.is_over_gear():
+		# Taking it into the backpack: ring only, no arrow or square — the
+		# destination preview belongs to shoves, not pickups.
+		return
 	var dir_i := _push_drag_dir()
 	if dir_i == Vector2i.ZERO:
 		return

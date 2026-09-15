@@ -3,7 +3,6 @@
 class_name BlackTekGearPanel
 extends RefCounted
 
-const EQUIP_SLOT := {2461: 1, 2467: 4, 2463: 4, 2376: 5, 2190: 5, 2511: 6, 2643: 8}
 # Classic Tibia equipment layout (slot ids): amulet/head/backpack,
 # right/armor/left, ring/legs/ammo, feet.
 const SLOT_LAYOUT := [[2, 1, 3], [5, 4, 6], [9, 7, 10], [-1, 8, -1]]
@@ -27,7 +26,13 @@ class InvDragButton extends Button:
 		var wrapc := Control.new()
 		wrapc.add_child(preview)
 		set_drag_preview(wrapc)
+		panel_mod.hud.begin_world_drag(from)
 		return {"for": "inv", "from": from, "itemtype": it}
+	func _notification(what: int) -> void:
+		# Drag finished anywhere: if no inventory slot accepted it, the HUD
+		# turns a world release into a floor drop.
+		if what == NOTIFICATION_DRAG_END:
+			panel_mod.hud.finish_world_drag()
 	func _can_drop_data(_pos, data) -> bool:
 		return typeof(data) == TYPE_DICTIONARY and String(data.get("for", "")) == "inv" and not panel_mod._same_slot(data.from, from)
 	func _drop_data(_pos, data) -> void:
@@ -93,8 +98,10 @@ func box_of() -> VBoxContainer:
 	return panel.get_child(0)
 
 func toggle() -> void:
-	panel.visible = not panel.visible
 	if panel.visible:
+		hud.hide_panel(panel)
+	else:
+		hud.show_panel(panel)
 		refresh_inventory()
 
 func _make_item_slot(kind: String, index: int) -> Button:
@@ -158,13 +165,17 @@ func _inv_move(from: Dictionary, to: Dictionary) -> void:
 		else:
 			p.bag[tidx] = row
 			p.bag[fidx] = dst if not dst.is_empty() else null
+		hud.drag_accepted = true
 	elif fkind == "bag" and tkind == "equip":
 		# Drag-equip follows the same slot rules as click-equip: an item only
-		# goes into its own equipment slot (no containers into helmets etc.).
-		if int(EQUIP_SLOT.get(int(row.itemtype), -1)) != tidx:
+		# goes into its own equipment slot (containers belong in Backpack).
+		var want := int(BlackTekGameServer.EQUIP_SLOT.get(int(row.itemtype), -1))
+		if want < 0 and game.dat != null and game.dat.is_container(int(row.itemtype)):
+			want = 3
+		if want != tidx:
 			game.message_local(hud._pid, "That item doesn't go in the %s slot." % String(SLOT_NAMES.get(tidx, "equipment")))
 			return
-		_do_equip(p, row, tidx)
+		hud.drag_accepted = _do_equip(p, row, tidx)
 	elif fkind == "equip" and tkind == "equip":
 		return # gear-to-gear moves are not supported: click to unequip first
 	elif fkind == "equip" and tkind == "bag":
@@ -172,15 +183,16 @@ func _inv_move(from: Dictionary, to: Dictionary) -> void:
 			if p.bag.get(i) == null:
 				p.bag[i] = row
 				p.inv[fidx] = null
+				hud.drag_accepted = true
 				break
 	game.inventory_changed.emit(hud._pid)
 
-func _do_equip(p: Dictionary, row: Dictionary, slot: int) -> void:
+func _do_equip(p: Dictionary, row: Dictionary, slot: int) -> bool:
 	var itemtype := int(row.itemtype)
 	var voc := int(p.vocation)
 	if slot == 6 and (voc == 1 or voc == 2):
 		game.message_local(hud._pid, "Sorcerers and druids cannot use shields.")
-		return
+		return false
 	var old: Dictionary = p.inv.get(slot) if p.inv.get(slot) != null else {}
 	for i in range(20):
 		if p.bag.get(i) == row:
@@ -193,6 +205,7 @@ func _do_equip(p: Dictionary, row: Dictionary, slot: int) -> void:
 				p.bag[i] = old
 				break
 	game.message_local(hud._pid, "Equipped %s." % game.item_label(itemtype))
+	return true
 
 func _on_slot_clicked(kind: String, index: int) -> void:
 	var p: Dictionary = game.players[hud._pid]
@@ -214,8 +227,13 @@ func _on_slot_clicked(kind: String, index: int) -> void:
 		game.message_local(hud._pid, "Your backpack is full.")
 		return
 	var itemtype := int(row.itemtype)
-	if EQUIP_SLOT.has(itemtype):
-		_do_equip(p, row, int(EQUIP_SLOT[itemtype]))
+	if BlackTekGameServer.EQUIP_SLOT.has(itemtype):
+		_do_equip(p, row, int(BlackTekGameServer.EQUIP_SLOT[itemtype]))
+		game.inventory_changed.emit(hud._pid)
+		return
+	if game.dat != null and game.dat.is_container(itemtype):
+		# Containers live in the Backpack gear slot, never loose in the bag.
+		_do_equip(p, row, 3)
 		game.inventory_changed.emit(hud._pid)
 		return
 	game.scripts.use_item(game, hud._pid, row)
@@ -256,9 +274,12 @@ func _fill_slot(node: Dictionary, row: Dictionary) -> void:
 		label += " x%d" % int(row.count)
 	var tip : String = label + "
 " + game.item_stats_text(itemtype)
-	if EQUIP_SLOT.has(itemtype):
+	if BlackTekGameServer.EQUIP_SLOT.has(itemtype):
 		tip += "
 (equippable - drag onto a gear slot)"
+	elif game.dat != null and game.dat.is_container(itemtype):
+		tip += "
+(container - belongs in the Backpack slot)"
 	btn.tooltip_text = tip
 
 # ---- stats panel -----------------------------------------------------------------

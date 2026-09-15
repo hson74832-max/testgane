@@ -1,0 +1,19 @@
+# BlackTek loot tables (data-driven; mirrors monster loot on the server).
+# chance 0..1 rolled per entry, count = randi(min, max) (x loot rate when
+# scaled). Item ids match assets/items.toml (gold coin 2148, meat 2666).
+
+[[loot]]
+monster = "Rat"
+itemtype = 2148
+min = 1
+max = 8
+chance = 1.0
+scaled = true
+
+[[loot]]
+monster = "Rat"
+itemtype = 2666
+min = 1
+max = 1
+chance = 0.4
+scaled = false

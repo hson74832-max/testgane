@@ -41,6 +41,7 @@ func _ready() -> void:
 	hud._opt_pixels.pressed.connect(_on_pixels_pressed)
 	hud.apply_hotbar_layout(cfg_hotbar_load())
 	view.hud = hud # enables click-path dots + push feedback in the world view
+	hud.game_view = view # enables floor drops (bag drags ending over the world)
 	# Boot log.
 	if server.use_real_sprites:
 		hud.chat_line("System", "Real Tibia.spr rendering. Log in (demo/demo) and enter the world.")

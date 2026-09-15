@@ -76,23 +76,23 @@ static func make_drag_handle(panel: Control, handle: Control) -> void:
 			panel.offset_bottom = pos.y + sz.y)
 
 # Release after a drag: drop the panel freely on an invisible 16px grid.
-# No edge docking — the grid extends past the screen edges, so panels may
-# hang halfway off-screen while always keeping a grabbable sliver visible
-# to pull them back.
+# No edge docking. Panels always stay fully inside the window (a panel that
+# somehow ends up outside is pulled back in on the next show/drag).
 static func drop_panel(panel: Control) -> void:
 	drag.erase(panel)
 	var vp := panel.get_viewport_rect().size
 	var r := panel.get_global_rect()
 	var w: float = r.size.x
 	var h: float = r.size.y
-	var gx := clampf(snappedf(r.position.x, 16.0), minf(48.0 - w, vp.x - 48.0), maxf(48.0 - w, vp.x - 48.0))
-	var gy := clampf(snappedf(r.position.y, 16.0), minf(32.0 - h, vp.y - 32.0), maxf(32.0 - h, vp.y - 32.0))
+	var gx := clampf(snappedf(r.position.x, 16.0), minf(8.0, vp.x - w - 8.0), maxf(8.0, vp.x - w - 8.0))
+	var gy := clampf(snappedf(r.position.y, 16.0), minf(8.0, vp.y - h - 8.0), maxf(8.0, vp.y - h - 8.0))
 	panel.anchor_left = 0.0; panel.anchor_top = 0.0
 	panel.anchor_right = 0.0; panel.anchor_bottom = 0.0
 	panel.offset_left = gx
 	panel.offset_top = gy
 	panel.offset_right = gx + w
 	panel.offset_bottom = gy + h
+	panel.set_meta("placed", true) # user-positioned: reopen relocates if buried
 
 # ---- widget factories -----------------------------------------------------------
 

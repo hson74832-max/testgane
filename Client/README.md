@@ -12,20 +12,30 @@ so the later switch to the real server only replaces `game/server.gd` /
 ```
 scripts/
   main.gd                 entry point: wiring, input (movement/hotkeys/push)
-  world_view.gd           renderer: map, creatures, damage numbers, light pass
-  game/server.gd          BlackTekGameServer — sessions, movement, combat,
-                          conditions, monsters, NPC, pathfinding, save
+  world_view.gd           renderer: map, creatures, damage numbers, engine lights
+  game/server.gd          BlackTekGameServer — signals, session state, thin
+                          delegates over the modules below (callers unchanged)
+  game/player.gd          sessions, vocations, vitals, inventory, movement,
+                          doors, drops, pickups, pushable/takeable queries
+  game/monsters.gd        archetypes (data/monster_definitions.toml), spawn,
+                          AI, occupancy, creature pushing
+  game/combat.gd          weapons/armor, targeting, melee, monster attacks, death
+  game/loot.gd            loot tables (data/loot_tables.toml) + roll/grant
+  game/regeneration.gd    poison + hp/mana regen ticks
+  game/pathfinding.gd     Dijkstra click-routing (sqrt(2) diagonals) + walker
+  game/npc.gd             Norf: temple post, local-chat hearing, dialogue, wares
+  data/                   monster_definitions.toml, loot_tables.toml
   game/world.gd           BlackTekWorld — map data: assets.dat/OTBM/sprites,
                           walkability, sprite anchoring, light sources
   game/database.gd        BlackTekDatabase — MockDB (accounts/players/items)
   game/action_scripts.gd  BlackTekActionScripts — simulated Lua content
   game/loaders/           dat/spr/otbm binary parsers
   net/                    protocol framing + XTEA (for the real server later)
-  ui/ui_kit.gd            shared theme, widget factories, docking system
+  ui/ui_kit.gd            shared theme, widget factories, free placement grid
   ui/gear_panel.gd        equipment + backpack screens (click/drag inventory)
   hud.gd                  HUD root: login, status bars, chat, stats, hotbar,
                           rail, minimap, shop + server signal wiring
-verify_demo.gd            headless regression suite (60+ checks)
+verify_demo.gd            headless regression suite (120+ checks)
 ```
 
 ## Run
@@ -72,9 +82,12 @@ sprites.
 | M | Toggle minimap |
 | PgUp / PgDn | Floor up / down |
 | Right rail icons | Gear / Stats / Chat / Shop / Minimap toggles; Retro pixels (crisp/smooth) and sprite upscale 32/64/128px below |
-| Mouse drag on adjacent creature/object | Push it 1 SQM in the drag direction, diagonals included (per-creature cooldown) |
+| Mouse drag on adjacent creature/object | Push it 1 SQM in the drag direction, diagonals included (per-creature cooldown); release a floor item over the open gear panel to take it instead |
 | Mouse drag from yourself | Quick-step 1 SQM in the drag direction |
-| Left-click a tile | Walk there automatically (server pathfinding, cyan dots; diagonals pace slower) |
+| Drag bag/gear item onto a floor tile | Drop it there (melee reach); drag floor loot onto the open gear panel to pick it up (auto-equips when the slot is free) |
+| Left-click a tile | Walk there automatically (shortest-route pathfinding, cyan dots; diagonals pace slower) |
+| Left-click an adjacent door | Open/close it (walkability follows the leaf) |
+| Chat | Local: only listeners within 9 SQM hear you; Norf only answers at the temple |
 
 ## HUD
 
@@ -101,8 +114,8 @@ wheel scrolls the chat text up/down.
 
 Every bar/panel (status, chat, hotbars, gear, stats, shop, minimap) moves
 freely: drag it (status: anywhere; others: by their header) and release to
-drop it on an invisible 16px grid, even partly off-screen (a grabbable
-sliver always stays visible). No edge docking. Panels are content-sized,
+drop it on an invisible 16px grid. No edge docking, and panels always stay
+fully inside the window. Panels are content-sized,
 never resizable; every panel header has -/X buttons to minimize or hide it
 (rail icons and hotkeys reopen). Hotkeys G/K/T/M still toggle gear, stats,
 chat and the minimap.

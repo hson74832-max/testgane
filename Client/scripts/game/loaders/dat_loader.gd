@@ -174,6 +174,9 @@ func load(path: String, stair_names := {}) -> bool:
 func is_solid(id: int) -> bool:
 	return bool(items.get(id, {}).get("block_solid", id >= 100 and id < 200))
 
+func is_container(id: int) -> bool:
+	return int(items.get(id, {}).get("group", 0)) == 2
+
 func item_name(id: int) -> String:
 	return String(item_meta.get(id, {}).get("name", ""))
 
@@ -223,17 +226,17 @@ func load_item_meta(path: String) -> Dictionary:
 	print("BlackTekDat: item names loaded: %d" % out.size())
 	return out
 
-# Compact cache: magic BTD7, u16 max_id, then per id 100..max bitmask u8 + speed u16
+# Compact cache: magic BTD8, u16 max_id, then per id 100..max bitmask u8 + speed u16
 # + dims (w,h,layers,patX,patY,patZ,frames as u8) + layer flags u8
 # + displacement (u16 x2, only if flag set) + elevation (u16, only if >0)
 # + light (u16, only if flag set) + sprite list (u16 n + n×u32).
 # Bit 0=solid 1=pathfind 2=projectile 3=stackable 4=pickupable 5=moveable 6=stair 7=light.
-# Layer bits: 0=ground 1=border 2=bottom 3=top 4=has displacement 5=has elevation.
+# Layer bits: 0=ground 1=border 2=bottom 3=top 4=has displacement 5=has elevation 6=container.
 func load_cache(path: String) -> bool:
 	if not FileAccess.file_exists(path):
 		return false
 	var f := FileAccess.open(path, FileAccess.READ)
-	if f == null or f.get_32() != 0x37445442: # "BTD7" LE
+	if f == null or f.get_32() != 0x38445442: # "BTD8" LE
 		return false
 	item_count = f.get_16()
 	items.clear()
@@ -257,7 +260,7 @@ func load_cache(path: String) -> bool:
 		for k in range(ns):
 			ids[k] = f.get_32()
 		items[id] = {
-			"id": id, "group": 1 if (lay & 1) else 0, "speed": sp,
+			"id": id, "group": 2 if (lay & 64) else (1 if (lay & 1) else 0), "speed": sp,
 			"block_solid": bool(m & 1), "block_pathfind": bool(m & 2),
 			"block_projectile": bool(m & 4), "stackable": bool(m & 8),
 			"pickupable": bool(m & 16), "moveable": bool(m & 32),
@@ -276,7 +279,7 @@ func save_cache(path: String) -> bool:
 	var f := FileAccess.open(path, FileAccess.WRITE)
 	if f == null:
 		return false
-	f.store_32(0x37445442)
+	f.store_32(0x38445442) # "BTD8" LE
 	f.store_16(item_count)
 	for id in range(100, item_count + 1):
 		var it: Dictionary = items.get(id, {})
@@ -300,6 +303,7 @@ func save_cache(path: String) -> bool:
 		if bool(it.get("is_border", false)): lay |= 2
 		if bool(it.get("is_bottom", false)): lay |= 4
 		if bool(it.get("is_top", false)): lay |= 8
+		if int(it.get("group", 0)) == 2: lay |= 64 # container
 		var dx := int(it.get("displacement_x", 0))
 		var dyy := int(it.get("displacement_y", 0))
 		if dx != 0 or dyy != 0:

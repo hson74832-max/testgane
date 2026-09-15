@@ -19,7 +19,6 @@ const ACCENT := Color(0.25, 0.8, 0.72)
 const GOLD_COLOR := Color("f5d76e")
 
 # itemtype -> equipment slot (cf. CONST_SLOT_* in the server).
-const EQUIP_SLOT := {2461: 1, 2467: 4, 2463: 4, 2376: 5, 2190: 5, 2511: 6, 2643: 8}
 # Classic Tibia equipment layout (slot ids): amulet/head/backpack,
 # right/armor/left, ring/legs/ammo, feet.
 const SLOT_LAYOUT := [[2, 1, 3], [5, 4, 6], [9, 7, 10], [-1, 8, -1]]
@@ -105,6 +104,12 @@ var _opt_pixels: Button
 var _settings_panel: PanelContainer
 var _fps_label: Label
 var _fps_clock := 0.0
+# Inventory drag tracking for floor drops: the source button announces the
+# drag, inventory moves mark it accepted, anything else released over the
+# world becomes a drop. game_view is wired by main (untyped: view owns HUD).
+var game_view = null
+var drag_from := {}
+var drag_accepted := false
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -230,6 +235,7 @@ func _toggle_minimize(panel: PanelContainer, box: VBoxContainer) -> void:
 			box.get_child(i).visible = vis.has(i)
 		panel.remove_meta("min_vis")
 		panel.remove_meta("min_h_full")
+		_clamp_panel(panel) # restoring grows downward: stay inside
 		return
 	var r := panel.get_global_rect()
 	panel.anchor_left = 0.0
@@ -837,7 +843,10 @@ func toggle_settings() -> void:
 func toggle_minimap() -> void:
 	if _minimap_panel == null:
 		_build_minimap()
-	_minimap_panel.visible = not _minimap_panel.visible
+	if _minimap_panel.visible:
+		hide_panel(_minimap_panel)
+	else:
+		show_panel(_minimap_panel)
 
 func _build_minimap() -> void:
 	_minimap_panel = BlackTekUiKit.panel(self, "top-right", Vector2(270, 300))
@@ -856,7 +865,10 @@ func toggle_shop() -> void:
 	if game.players.is_empty():
 		return
 	refresh_shop_gold()
-	_shop_panel.visible = not _shop_panel.visible
+	if _shop_panel.visible:
+		hide_panel(_shop_panel)
+	else:
+		show_panel(_shop_panel)
 
 # Small square toggle button with an item icon (itemtype >= 0) or a text glyph.
 func _make_icon_button(glyph: String, tip: String, on_press: Callable, itemtype := -1) -> Button:
@@ -890,11 +902,152 @@ func _make_icon_button(glyph: String, tip: String, on_press: Callable, itemtype 
 	return btn
 
 func toggle_chat() -> void:
-	_chat_panel.visible = not _chat_panel.visible
+	if _chat_panel.visible:
+		hide_panel(_chat_panel)
+	else:
+		show_panel(_chat_panel)
+
+# Showing a tab: unhide it in place, but never buried — anything that would
+# open >30% covered (including designer spots that stack over each other)
+# slides to the first free 32px grid slot (cascading from top-left when the
+# screen is crammed).
+func show_panel(p: PanelContainer) -> void:
+	p.visible = true
+	var r := _panel_rect(p)
+	var vp := get_viewport_rect().size
+	# Clamp fully inside first (a hidden panel reports stale zeros, so work
+	# from the analytic rect which is valid even before layout).
+	var cx := clampf(r.position.x, minf(8.0, vp.x - r.size.x - 8.0), maxf(8.0, vp.x - r.size.x - 8.0))
+	var cy := clampf(r.position.y, minf(8.0, vp.y - r.size.y - 8.0), maxf(8.0, vp.y - r.size.y - 8.0))
+	_write_panel_rect(p, Rect2(cx, cy, r.size.x, r.size.y))
+	if not _rect_buried(Rect2(cx, cy, r.size.x, r.size.y), p):
+		return
+	var y := 8.0
+	while y + r.size.y <= vp.y - 8.0:
+		var x := 8.0
+		while x + r.size.x <= vp.x - 8.0:
+			var cand := Rect2(x, y, r.size.x, r.size.y)
+			if not _rect_buried(cand, p):
+				_write_panel_rect(p, cand)
+				return
+			x += 32.0
+		y += 32.0
+	var n := 0
+	for c in _hud_panels():
+		if c != null and (c as Control).visible:
+			n += 1
+	_write_panel_rect(p, Rect2(8.0 + 40.0 * float(n % 8), 8.0 + 40.0 * float(n % 6), r.size.x, r.size.y))
+
+func hide_panel(p: PanelContainer) -> void:
+	p.visible = false
+
+# Every panel that can cover another one.
+func _hud_panels() -> Array:
+	return [_status_panel, _chat_panel, _rail_panel, _hotbar_wrap, gear_panel.panel, _stats_panel, _shop_panel, _minimap_panel, _settings_panel]
+
+func begin_world_drag(from: Dictionary) -> void:
+	drag_from = from
+	drag_accepted = false
+
+# An inventory drag ended outside every gear slot: dropping it over the
+# world leaves the item on that floor tile (melee reach, same floor).
+func finish_world_drag() -> void:
+	var from: Dictionary = drag_from
+	drag_from = {}
+	var ok := drag_accepted
+	drag_accepted = false
+	if from.is_empty() or ok:
+		return # landed in the inventory (or nowhere to track)
+	if game == null or game.players.is_empty() or game_view == null or not in_game:
+		return
+	var mouse: Vector2 = game_view.get_viewport().get_mouse_position()
+	if is_over_ui(mouse):
+		return # aimed at a panel, not the world: cancel quietly
+	var t: Vector2i = game_view.mouse_tile()
+	if not game_view._is_in_view(t):
+		return
+	if String(from.get("kind", "")) == "equip":
+		game.drop_equipped(_pid, int(from.get("index", -1)), t, game.demo_z)
+	else:
+		game.drop_item(_pid, int(from.get("index", -1)), t, game.demo_z)
+
+func _panel_rects() -> Array:
+	var out := []
+	for c in _hud_panels():
+		if c != null and (c as Control).visible:
+			out.append((c as Control).get_global_rect())
+	return out
+
+# Grabbing floor loot needs the open gear panel under the cursor.
+func is_over_gear() -> bool:
+	return is_over_gear_at(game_view.get_viewport().get_mouse_position()) if game_view != null else false
+
+func is_over_gear_at(px: Vector2) -> bool:
+	var gp: PanelContainer = gear_panel.panel
+	return gp != null and gp.visible and gp.get_global_rect().has_point(px)
+
+func is_over_ui(px: Vector2) -> bool:
+	for r in _panel_rects():
+		if r.has_point(px):
+			return true
+	return false
+
+# Analytic panel rect: position from anchors + offsets, size floored with
+# the combined minimum. Valid even before the first layout pass, unlike
+# get_global_rect() on a just-unhidden panel (stale zeros).
+func _panel_rect(p: PanelContainer) -> Rect2:
+	var vp := get_viewport_rect().size
+	var m := p.get_combined_minimum_size()
+	var w: float = p.offset_right - p.offset_left
+	var h: float = p.offset_bottom - p.offset_top
+	if w <= 0.0:
+		w = m.x
+	if h <= 0.0:
+		h = m.y
+	return Rect2(p.anchor_left * vp.x + p.offset_left, p.anchor_top * vp.y + p.offset_top, w, h)
+
+func _write_panel_rect(p: PanelContainer, r: Rect2) -> void:
+	p.anchor_left = 0.0; p.anchor_top = 0.0
+	p.anchor_right = 0.0; p.anchor_bottom = 0.0
+	p.offset_left = r.position.x
+	p.offset_top = r.position.y
+	p.offset_right = r.position.x + r.size.x
+	p.offset_bottom = r.position.y + r.size.y
+
+# Keep a shown panel fully inside the window (panels hanging off-screen is
+# a critical bug: they must always be reachable).
+func _clamp_panel(p: PanelContainer) -> void:
+	var vp := get_viewport_rect().size
+	var r := _panel_rect(p)
+	var x := clampf(r.position.x, minf(8.0, vp.x - r.size.x - 8.0), maxf(8.0, vp.x - r.size.x - 8.0))
+	var y := clampf(r.position.y, minf(8.0, vp.y - r.size.y - 8.0), maxf(8.0, vp.y - r.size.y - 8.0))
+	_write_panel_rect(p, Rect2(x, y, r.size.x, r.size.y))
+
+# Buried = sharing a substantial 2D patch with another visible panel (both
+# dimensions overlap by >24px). Thin edge kisses like the chat/status strip
+# do not count, but side-by-side piles do.
+func _rect_buried(r: Rect2, ignore: Control) -> bool:
+	if r.size.x <= 0.0 or r.size.y <= 0.0:
+		return false
+	for c in _hud_panels():
+		if c == null or c == ignore or not (c is Control) or not c.visible:
+			continue
+		var cc: Control = c
+		if r.intersects(cc.get_global_rect()):
+			var inter := r.intersection(cc.get_global_rect())
+			if inter.size.x > 24.0 and inter.size.y > 24.0:
+				return true
+	return false
+
+func _panel_buried(p: PanelContainer) -> bool:
+	return _rect_buried(_panel_rect(p), p)
 
 # Free placement: toggling only flips visibility, panels stay where dropped.
 func _toggle_panel(p: PanelContainer) -> void:
-	p.visible = not p.visible
+	if p.visible:
+		hide_panel(p)
+	else:
+		show_panel(p)
 
 func toggle_stats() -> void:
 	_toggle_panel(_stats_panel)
@@ -1044,7 +1197,7 @@ func _build_shop() -> void:
 	head.add_child(close)
 	BlackTekUiKit.make_drag_handle(_shop_panel, head)
 	_shop_gold = BlackTekUiKit.label(box, "You carry 0 gold.", 11, GOLD_COLOR)
-	for offer in game.scripts.shop:
+	for offer in BlackTekNpc.SHOP_OFFERS:
 		var h := HBoxContainer.new()
 		h.add_theme_constant_override("separation", 6)
 		box.add_child(h)
@@ -1087,13 +1240,15 @@ func connect_game() -> void:
 		if _shop_panel.visible:
 			refresh_shop_gold())
 	game.msg_local.connect(func(_pid: int, text: String): game_message(text))
-	game.chat_received.connect(func(sender: String, text: String): chat_line(sender, text))
+	game.chat_heard.connect(func(pid: int, sender: String, text: String):
+		if pid == _pid:
+			chat_line(sender, text))
 	game.level_up.connect(func(_pid: int, _lvl: int):
 		if _stats_panel.visible:
 			refresh_stats())
 	game.shop_requested.connect(func(_pid: int):
 		refresh_shop_gold()
-		_shop_panel.visible = true)
+		show_panel(_shop_panel))
 	game.login_error.connect(func(text: String):
 		if _login.visible:
 			_login_error.text = text)

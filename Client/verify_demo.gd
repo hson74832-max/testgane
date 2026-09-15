@@ -140,7 +140,7 @@ func _initialize() -> void:
 		var blocked: Vector2i = srv.request_move(1, Vector2i(-1, 0)) # into the rat
 		_check("player cannot step onto monster SQM", blocked == srv.players[1].tile)
 		srv.monsters[mid2].tile = srv.players[1].tile # force artificial overlap
-		_check("occupied tile is rejected for spawning", not srv._tile_free_for_monster(srv.players[1].tile, int(srv.players[1].z), mid2))
+		_check("occupied tile is rejected for spawning", not srv.tile_free_for_monster(srv.players[1].tile, int(srv.players[1].z), mid2))
 		srv.monsters[mid2].tile = mtile
 
 	# Keep only one monster for the deterministic push/path tests below.
@@ -277,6 +277,183 @@ func _initialize() -> void:
 		if maxi(absi(dtile.x - spawn.x), absi(dtile.y - spawn.y)) > 1:
 			_check("far door use refused", not srv.use_door(dtile, dz, 1))
 			_check("far door left closed", int(srv.door_at(dtile, dz).itemtype) == shut_id)
+		# step_blocker names real blockers; squeeze rule lets one blocked
+		# side (here: the closed door leaf) still pass diagonally.
+		var nadj := Vector2i(-9999, -9999)
+		for off in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 1), Vector2i(-1, -1), Vector2i(1, -1), Vector2i(-1, 1)]:
+			var nc: Vector2i = dtile + off
+			if srv.is_walkable(nc, dz) and srv.monster_at(nc, dz).is_empty():
+				nadj = nc
+				break
+		if nadj != Vector2i(-9999, -9999):
+			srv.players[1].tile = nadj
+			var to_door: Vector2i = dtile - nadj
+			if maxi(absi(to_door.x), absi(to_door.y)) == 1 and to_door != Vector2i.ZERO:
+				if srv.dat.is_solid(shut_id):
+					_check("step_blocker names the closed door", srv.step_blocker(1, to_door) == "closed door")
+				else:
+					_check("step_blocker allows walkable doors", srv.step_blocker(1, to_door) == "")
+			var squeezed := false
+			var tried := false
+			for dd in [Vector2i(1, 1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(-1, -1)]:
+				var dst: Vector2i = nadj + dd
+				if not srv.is_walkable(dst, dz) or not srv.monster_at(dst, dz).is_empty():
+					continue
+				var s1 := nadj + Vector2i(dd.x, 0)
+				var s2 := nadj + Vector2i(0, dd.y)
+				if (s1 == dtile) == (s2 == dtile):
+					continue # need exactly one side on the door leaf
+				var other := s2 if s1 == dtile else s1
+				if not srv.is_walkable(other, dz):
+					continue
+				tried = true
+				if srv.can_step(1, dd) and srv.request_move(1, dd) == dst:
+					squeezed = true
+				srv.players[1].tile = nadj
+				break
+			if tried:
+				_check("diagonal squeezes past the closed door", squeezed)
+			srv.players[1].tile = spawn
+			srv.cancel_path(1)
+
+	# ---- backpack <-> floor: drop a bag row on a tile, pick it back up ----
+	srv.players[1].tile = spawn
+	var fz := int(srv.players[1].z)
+	srv.add_item(1, 2666, 2) # guarantee droppable meat
+	var drop_bpos := -1
+	for i in range(20):
+		var it: Dictionary = srv.players[1].bag.get(i) if srv.players[1].bag.get(i) != null else {}
+		if not it.is_empty() and int(it.itemtype) == 2666:
+			drop_bpos = i
+			break
+	var ftile := Vector2i(-9999, -9999)
+	for off in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+		var c: Vector2i = spawn + off
+		if srv.tile_info(c, fz).is_empty() or not srv.monster_at(c, fz).is_empty():
+			continue
+		if not srv.takeable_item_at(c, fz).is_empty():
+			continue
+		ftile = c
+		break
+	_check("drop tile next to spawn", ftile != Vector2i(-9999, -9999) and drop_bpos >= 0)
+	if ftile != Vector2i(-9999, -9999) and drop_bpos >= 0:
+		var meat0 := _bag_count(srv, 2666)
+		_check("drop works", srv.drop_item(1, drop_bpos, ftile, fz))
+		_check("drop takes one from the bag", _bag_count(srv, 2666) == meat0 - 1)
+		_check("dropped meat lies on the tile", int(srv.takeable_item_at(ftile, fz).get("itemtype", 0)) == 2666)
+		_check("far drop refused", not srv.drop_item(1, drop_bpos, spawn + Vector2i(10, 0), fz))
+		_check("pickup works", srv.pickup_item(ftile, fz, 1))
+		_check("pickup restores the bag", _bag_count(srv, 2666) == meat0)
+		_check("tile is clear again", srv.takeable_item_at(ftile, fz).is_empty())
+		_check("second pickup finds nothing", not srv.pickup_item(ftile, fz, 1))
+		# full backpack refuses the pickup and leaves the tile alone
+		srv.drop_item(1, drop_bpos, ftile, fz)
+		var bag_backup: Dictionary = (srv.players[1].bag as Dictionary).duplicate(true)
+		for i2 in range(20):
+			srv.players[1].bag[i2] = {"sid": 9000 + i2, "pid": 1, "itemtype": 9999, "count": 1, "slot": -1, "bpos": i2}
+		_check("full backpack refuses pickup", not srv.pickup_item(ftile, fz, 1))
+		_check("refused pickup leaves tile alone", int(srv.takeable_item_at(ftile, fz).get("itemtype", 0)) == 2666)
+		srv.players[1].bag = bag_backup
+		srv.pickup_item(ftile, fz, 1) # tidy up: meat back in the bag
+		srv.players[1].tile = spawn
+
+	# ---- preview honesty: can_step/step_blocker agree with request_move ----
+	srv.players[1].tile = spawn
+	srv.monsters.clear()
+	var agree := true
+	for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(-1, -1)]:
+		srv.players[1].tile = spawn
+		var c_ok: bool = srv.can_step(1, d)
+		if (srv.step_blocker(1, d) == "") != c_ok:
+			agree = false
+		if (srv.request_move(1, d) == spawn + d) != c_ok:
+			agree = false
+	srv.players[1].tile = spawn
+	srv.cancel_path(1)
+	_check("can_step/blocker agree with request_move in all 8 dirs", agree)
+	_check("backpacks are containers", srv.dat.is_container(1988))
+	_check("swords are not containers", not srv.dat.is_container(2376))
+
+	# ---- containers home to the Backpack gear slot, never loose in the bag ----
+	var ctile := Vector2i(-9999, -9999)
+	for off in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+		var c: Vector2i = spawn + off
+		if srv.tile_info(c, fz).is_empty() or not srv.monster_at(c, fz).is_empty():
+			continue
+		ctile = c
+		break
+	_check("container tile next to spawn", ctile != Vector2i(-9999, -9999))
+	if ctile != Vector2i(-9999, -9999):
+		var home_pack: Dictionary = srv.players[1].inv.get(3) if srv.players[1].inv.get(3) != null else {}
+		srv.players[1].inv[3] = null
+		var centry: Dictionary = srv.tile_info(ctile, fz)
+		var cids: PackedInt32Array = (centry.get("items", PackedInt32Array()) as PackedInt32Array).duplicate()
+		cids.append(1988)
+		centry["items"] = cids
+		_check("floor backpack picked up", srv.pickup_item(ctile, fz, 1))
+		_check("backpack refits its gear slot", int(srv.players[1].inv.get(3, {}).get("itemtype", 0)) == 1988)
+		var centry2: Dictionary = srv.tile_info(ctile, fz)
+		var cids2: PackedInt32Array = (centry2.get("items", PackedInt32Array()) as PackedInt32Array).duplicate()
+		cids2.append(1988)
+		centry2["items"] = cids2
+		_check("second backpack goes to the bag (slot busy)", srv.pickup_item(ctile, fz, 1))
+		var bagged := 0
+		for i in range(20):
+			var it: Dictionary = srv.players[1].bag.get(i) if srv.players[1].bag.get(i) != null else {}
+			if not it.is_empty() and int(it.itemtype) == 1988:
+				bagged += 1
+				srv.players[1].bag[i] = null # tidy up
+		_check("exactly one spare backpack bagged", bagged == 1)
+		srv.players[1].inv[3] = home_pack if not home_pack.is_empty() else null
+		srv.players[1].tile = spawn
+
+	# ---- gear <-> floor: drop equipped rows, pickup refits free slots ----
+	var gtile := Vector2i(-9999, -9999)
+	for off in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+		var c: Vector2i = spawn + off
+		if srv.tile_info(c, fz).is_empty() or not srv.monster_at(c, fz).is_empty():
+			continue
+		gtile = c
+		break
+	_check("gear drop tile next to spawn", gtile != Vector2i(-9999, -9999))
+	if gtile != Vector2i(-9999, -9999):
+		_check("sword starts equipped", int(srv.players[1].inv.get(5, {}).get("itemtype", 0)) == 2376)
+		_check("drop equipped works", srv.drop_equipped(1, 5, gtile, fz))
+		_check("sword slot cleared", srv.players[1].inv.get(5) == null)
+		_check("sword lies on the tile", int(srv.takeable_item_at(gtile, fz).get("itemtype", 0)) == 2376)
+		_check("pickup refits the free gear slot", srv.pickup_item(gtile, fz, 1))
+		_check("sword re-equipped", int(srv.players[1].inv.get(5, {}).get("itemtype", 0)) == 2376)
+		srv.add_item(1, 2376, 1) # second sword lands in the bag (slot busy)
+		_check("second sword goes to bag", _bag_count(srv, 2376) == 1)
+		var sbpos := -1
+		for i in range(20):
+			var it: Dictionary = srv.players[1].bag.get(i) if srv.players[1].bag.get(i) != null else {}
+			if not it.is_empty() and int(it.itemtype) == 2376:
+				sbpos = i
+				break
+		_check("drop bagged sword", srv.drop_item(1, sbpos, gtile, fz))
+		_check("pickup with busy slot keeps it bagged", srv.pickup_item(gtile, fz, 1) and _bag_count(srv, 2376) == 1 and int(srv.players[1].inv.get(5, {}).get("itemtype", 0)) == 2376)
+		srv.players[1].tile = spawn
+
+	# ---- local chat: Norf hears you at the temple, not across the map ----
+	var heard: Array = []
+	srv.chat_heard.connect(func(pid: int, sender: String, text: String): heard.append([pid, sender, text]))
+	heard.clear()
+	_check("nearby hi reaches Norf", BlackTekNpc.handle_dialogue(srv, 1, "hi"))
+	var norfs := 0
+	for h in heard:
+		if String(h[1]).begins_with("Norf"):
+			norfs += 1
+	_check("Norf answers at the temple", norfs == 1)
+	srv.players[1].tile = spawn + Vector2i(50, 0)
+	heard.clear()
+	_check("far hi handled without Norf", BlackTekNpc.handle_dialogue(srv, 1, "hi"))
+	var norfs_far := 0
+	for h2 in heard:
+		if String(h2[1]).begins_with("Norf"):
+			norfs_far += 1
+	_check("Norf stays silent across the map", norfs_far == 0)
+	srv.players[1].tile = spawn
 
 	# ---- click pathfinding (Dijkstra: shortest route, diagonals cost sqrt(2)) ----
 	srv.monsters.clear() # deterministic open ground for the shortcut check
@@ -297,6 +474,15 @@ func _initialize() -> void:
 	_check("diagonal still routes between two rats", pinched == 1)
 	srv.monsters.erase(777001)
 	srv.monsters.erase(777002)
+	# rats on the line never bend a route: plan straight through (the walker
+	# stops with "blocked" if one is still there mid-walk). Reuses the
+	# proven-open diagonal tiles from the shortcut check above.
+	srv.players[1].tile = spawn
+	srv.monsters[777003] = {"id": 777003, "name": "Rat", "tile": spawn + Vector2i(1, 1), "z": iz, "hp": 25, "hpmax": 25, "move_cd": 0.0, "attack_cd": 0.0, "target_pid": 0}
+	var thru: int = srv.request_path(1, spawn + Vector2i(2, 2))
+	_check("path routes straight through a rat line", thru == 2)
+	_check("straight route steps onto the rat tile", srv.get_path(1) == [spawn + Vector2i(1, 1), spawn + Vector2i(2, 2)])
+	srv.monsters.erase(777003)
 	srv.cancel_path(1)
 	var walker_tile: Vector2i = srv.players[1].tile
 	var path_target: Vector2i = walker_tile + Vector2i(3, 2)

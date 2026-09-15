@@ -19,8 +19,7 @@ var actions: Dictionary = {}
 var talkactions: Dictionary = {}
 # spells registry: words -> {src, mana, min_level, cooldown_s, run: Callable(game, pid) -> bool}
 var spells: Dictionary = {}
-# NPC shop offers (data/npc/* + npcsystem): {itemtype, price, sell: bool}
-var shop: Array = []
+# NPC wares live in game/npc.gd (BlackTekNpc.SHOP_OFFERS).
 
 func _init() -> void:
 	# ---- data/scripts/actions (use item) ------------------------------------
@@ -41,14 +40,6 @@ func _init() -> void:
 	# ---- data/scripts/spells (instant player spells) -------------------------
 	spells["exura"] = {"src": "spells/scripts/healing/heal.lua (words exura)", "mana": 20, "min_level": 0, "cooldown_s": 1.0, "run": _spell_heal}
 	spells["exori flam"] = {"src": "spells/scripts/attack/flame strike.lua (words exori flam)", "mana": 20, "min_level": 12, "cooldown_s": 2.0, "run": _spell_flame_strike}
-
-	# ---- NPC shop (data/npc + modules game_shop): price in gold coins --------
-	shop = [
-		{"itemtype": HEALTH_POTION, "price": 50, "name": "health potion"},
-		{"itemtype": MANA_POTION, "price": 50, "name": "mana potion"},
-		{"itemtype": MEAT, "price": 8, "name": "meat"},
-		{"itemtype": HAM, "price": 12, "name": "ham"},
-	]
 
 # ---- dispatch (cf. Game::useItem -> actions::registerAction callbacks) ------
 

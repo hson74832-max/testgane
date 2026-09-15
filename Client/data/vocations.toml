@@ -1,0 +1,73 @@
+# BlackTek vocations (data-driven; mirrors data/vocations/*.toml on the server).
+# per-level cap/hp/mana + regen [amount, interval_s] + attack_speed + skill_rate.
+# IDs must stay stable: 0 None, 1 Sorcerer, 2 Druid, 3 Paladin, 4 Knight.
+
+[[vocation]]
+id = 0
+name = "None"
+short = "N"
+cap = 10
+hp = 5
+mana = 5
+regen_hp_amount = 1
+regen_hp_interval = 6
+regen_mana_amount = 1
+regen_mana_interval = 6
+attack_speed = 2.0
+skill_rate = 3.0
+
+[[vocation]]
+id = 1
+name = "Sorcerer"
+short = "S"
+cap = 10
+hp = 5
+mana = 30
+regen_hp_amount = 5
+regen_hp_interval = 6
+regen_mana_amount = 5
+regen_mana_interval = 3
+attack_speed = 2.0
+skill_rate = 3.0
+
+[[vocation]]
+id = 2
+name = "Druid"
+short = "D"
+cap = 10
+hp = 5
+mana = 30
+regen_hp_amount = 5
+regen_hp_interval = 6
+regen_mana_amount = 5
+regen_mana_interval = 3
+attack_speed = 2.0
+skill_rate = 3.0
+
+[[vocation]]
+id = 3
+name = "Paladin"
+short = "P"
+cap = 20
+hp = 10
+mana = 15
+regen_hp_amount = 5
+regen_hp_interval = 4
+regen_mana_amount = 5
+regen_mana_interval = 3
+attack_speed = 2.0
+skill_rate = 3.0
+
+[[vocation]]
+id = 4
+name = "Knight"
+short = "K"
+cap = 25
+hp = 15
+mana = 5
+regen_hp_amount = 5
+regen_hp_interval = 3
+regen_mana_amount = 5
+regen_mana_interval = 6
+attack_speed = 2.0
+skill_rate = 3.0
