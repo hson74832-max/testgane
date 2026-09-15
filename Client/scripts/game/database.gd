@@ -89,6 +89,10 @@ func find_player_by_name(player_name: String) -> Dictionary:
 	return {}
 
 # Empty row per schema.sql defaults; gameplay values come from vocation+level.
+# DEFAULT_SKILLS is the single source for fresh skill tables (player.gd falls
+# back to it when an old row has none).
+const DEFAULT_SKILLS := {"fist": 10, "club": 10, "sword": 10, "axe": 10, "dist": 10, "shield": 10, "fishing": 10}
+
 func create_character(account_id: int, player_name: String, vocation: int, town_id := 1) -> Dictionary:
 	if not find_player_by_name(player_name).is_empty():
 		return {}
@@ -99,7 +103,7 @@ func create_character(account_id: int, player_name: String, vocation: int, town_
 		"cap": 400, "soul": 100, "maglevel": 0,
 		"town_id": town_id, "posx": 0, "posy": 0, "posz": 7,
 		"balance": 0,
-		"skills": {"fist": 10, "club": 10, "sword": 10, "axe": 10, "dist": 10, "shield": 10, "fishing": 10},
+		"skills": DEFAULT_SKILLS.duplicate(true),
 	}
 	db.next_id.player = int(p.id) + 1
 	db.players.append(p)

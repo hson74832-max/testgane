@@ -140,6 +140,8 @@ static func interact_npc(game, pid: int, nid: int) -> bool:
 # Trade language: `hi`, `trade` (opens the shop window), `buy <name>`,
 # `sell <name> [count]`, `bye`.
 static func handle_dialogue(game, pid: int, low: String) -> bool:
+	if not game.players.has(pid):
+		return false
 	var p: Dictionary = game.players.get(pid, {})
 	var home: Vector2i = game.npc_tile
 	var rng: int = say_range(game)

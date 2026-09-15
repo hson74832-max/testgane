@@ -26,13 +26,17 @@ static func piece_armor(game, itemtype: int) -> int:
 static func attack_speed(game, vocation: int) -> float:
 	if game.get("config") != null:
 		return float((game.config as BlackTekConfig).vocation(vocation).attack_speed)
-	return float(BlackTekGameServer.VOCATIONS[vocation].attack_speed)
+	return float(BlackTekGameServer.VOCATIONS.get(vocation, BlackTekGameServer.VOCATIONS[4]).attack_speed)
 
 static func equipped_weapon(game, pid: int) -> int:
+	if not game.players.has(pid):
+		return 0
 	var w: Dictionary = game.players[pid].inv.get(5) if game.players[pid].inv.get(5) != null else {} # CONST_SLOT_RIGHT = 5
 	return int(w.get("itemtype", 0)) if not w.is_empty() else 0
 
 static func total_armor(game, pid: int) -> int:
+	if not game.players.has(pid):
+		return 0
 	var p: Dictionary = game.players[pid]
 	var armor := 0
 	for slot in [1, 4, 6, 7, 8]:
@@ -42,6 +46,8 @@ static func total_armor(game, pid: int) -> int:
 	return armor
 
 static func nearest_monster(game, pid: int, max_tiles := 1) -> Dictionary:
+	if not game.players.has(pid):
+		return {}
 	var p: Dictionary = game.players[pid]
 	var best := {}
 	var best_d := max_tiles + 1
@@ -56,6 +62,8 @@ static func nearest_monster(game, pid: int, max_tiles := 1) -> Dictionary:
 
 # Space / right click: mark the nearest (or next) creature as target.
 static func target_next(game, pid: int) -> void:
+	if not game.players.has(pid):
+		return
 	var p: Dictionary = game.players[pid]
 	var spec := BlackTekMonsters.archetype(game)
 	var candidates: Array = []
@@ -80,8 +88,10 @@ static func target_next(game, pid: int) -> void:
 
 # Attack the current target when it is adjacent (hotbar slot / auto-attack).
 static func attack_current_target(game, pid: int) -> void:
+	if not game.players.has(pid):
+		return
 	var p: Dictionary = game.players[pid]
-	p.path = []
+	BlackTekPath.clear_path(game, pid)
 	var m: Dictionary = game.monsters.get(int(p.target), {})
 	if m.is_empty():
 		game.message_local(pid, "You have no target. Right-click or press Space next to a creature.")
@@ -94,6 +104,8 @@ static func attack_current_target(game, pid: int) -> void:
 
 # One melee hit against m (damage roll, skill training, cooldown).
 static func melee_swing(game, pid: int, m: Dictionary) -> void:
+	if not game.players.has(pid) or m.is_empty():
+		return
 	var p: Dictionary = game.players[pid]
 	var now := Time.get_ticks_msec() / 1000.0
 	p.attack_cd = now + attack_speed(game, int(p.vocation))
@@ -111,6 +123,8 @@ static func melee_swing(game, pid: int, m: Dictionary) -> void:
 
 # Auto-attack tick: hit the marked target while it stands adjacent.
 static func tick_auto_attack(game, pid: int, now: float) -> void:
+	if not game.players.has(pid):
+		return
 	var p: Dictionary = game.players[pid]
 	if int(p.target) != 0 and float(p.get("attack_cd", 0.0)) <= now:
 		var tm: Dictionary = game.monsters.get(int(p.target), {})
@@ -120,10 +134,40 @@ static func tick_auto_attack(game, pid: int, now: float) -> void:
 				BlackTekCombat.melee_swing(game, pid, tm)
 
 static func set_target(game, pid: int, m: Dictionary) -> void:
+	if not game.players.has(pid):
+		return
 	var tid := int(m.get("id", 0)) if not m.is_empty() else 0
 	if int(game.players[pid].target) != tid:
 		game.players[pid].target = tid
 	game.target_changed.emit(pid, m)
+
+# Target housekeeping (called every server tick): the mark vanishes when the
+# creature is gone, on another floor, or outside the visible viewport
+# (view_w/view_h from gameplay.toml, Tibia 10.98). Returns true if kept.
+static func validate_target(game, pid: int) -> bool:
+	if not game.players.has(pid):
+		return false
+	var p: Dictionary = game.players[pid]
+	var tid := int(p.get("target", 0))
+	if tid == 0:
+		return false
+	var m: Dictionary = game.monsters.get(tid, {})
+	var lost := ""
+	if m.is_empty():
+		lost = "gone"
+	elif int(m.z) != int(p.z):
+		lost = "another floor"
+	else:
+		var vw: int = game.config.tune_int("view_w") if game.get("config") != null else 15
+		var vh: int = game.config.tune_int("view_h") if game.get("config") != null else 11
+		if absi(int(m.tile.x) - int(p.tile.x)) > vw / 2 or absi(int(m.tile.y) - int(p.tile.y)) > vh / 2:
+			lost = "out of sight"
+	if lost == "":
+		return true
+	p.target = 0
+	game.target_changed.emit(pid, {})
+	game.message_local(pid, "Target lost (%s)." % lost)
+	return false
 
 static func damage_monster(game, mid: int, dmg: int, kind: String, from_pid: int) -> void:
 	var m: Dictionary = game.monsters.get(mid, {})
@@ -140,7 +184,7 @@ static func damage_monster(game, mid: int, dmg: int, kind: String, from_pid: int
 
 static func kill_monster(game, mid: int, pid: int) -> void:
 	var m: Dictionary = game.monsters.get(mid, {})
-	if m.is_empty():
+	if m.is_empty() or not game.players.has(pid):
 		return
 	game.monsters.erase(mid)
 	game.target_changed.emit(pid, {})
@@ -155,6 +199,8 @@ static func kill_monster(game, mid: int, pid: int) -> void:
 	game.stats_changed.emit(pid)
 
 static func gain_exp(game, pid: int) -> void:
+	if not game.players.has(pid):
+		return
 	var p: Dictionary = game.players[pid]
 	while int(p.exp) >= BlackTekPlayer.exp_for_level(int(p.level) + 1):
 		p.level = int(p.level) + 1
@@ -163,16 +209,18 @@ static func gain_exp(game, pid: int) -> void:
 		p.manamax = BlackTekPlayer.max_mana_for(game, voc, int(p.level))
 		p.hp = p.hpmax
 		p.mana = p.manamax
-		p.cap = 400 + int(vocation_cap(game, voc)) * (int(p.level) - 1)
+		p.cap = BlackTekVitals.base_cap(game) + int(vocation_cap(game, voc)) * (int(p.level) - 1)
 		game.level_up.emit(pid, int(p.level))
 		game.message_local(pid, "You advanced from level %d to %d!" % [int(p.level) - 1, int(p.level)])
 
 static func vocation_cap(game, voc: int) -> int:
 	if game.get("config") != null:
 		return int((game.config as BlackTekConfig).vocation(voc).per_level.cap)
-	return int(BlackTekGameServer.VOCATIONS[voc].per_level.cap)
+	return int(BlackTekGameServer.VOCATIONS.get(voc, BlackTekGameServer.VOCATIONS[4]).per_level.cap)
 
 static func monster_attack(game, m: Dictionary, pid: int) -> void:
+	if not game.players.has(pid) or m.is_empty():
+		return
 	var p: Dictionary = game.players[pid]
 	var now := Time.get_ticks_msec() / 1000.0
 	var spec := BlackTekMonsters.archetype(game, String(m.name))
@@ -193,9 +241,11 @@ static func monster_attack(game, m: Dictionary, pid: int) -> void:
 	game.stats_changed.emit(pid)
 
 static func player_death(game, pid: int) -> void:
+	if not game.players.has(pid):
+		return
 	var p: Dictionary = game.players[pid]
 	game.message_local(pid, "You are dead. Respawn at town with full health (demo: no penalty).")
-	p.path = []
+	BlackTekPath.clear_path(game, pid)
 	p.hp = int(p.hpmax)
 	p.mana = int(p.manamax)
 	p.poison_until = 0.0

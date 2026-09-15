@@ -31,6 +31,13 @@ diag_walk_cd = 0.21
 # Whirlwind telegraph: warning squares show this long before damage lands.
 whirlwind_delay = 0.8
 
+# Base capacity every character starts with (per-level bonus adds on top).
+base_cap = 400
+
+# Visible viewport (Tibia 10.98): combat targets outside it are dropped.
+view_w = 15
+view_h = 11
+
 # Fallback map size when OTBM is unavailable (real map overrides this).
 map_w = 30
 map_h = 22

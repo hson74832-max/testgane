@@ -42,7 +42,7 @@ static func enter_world(game, player_row: Dictionary) -> Vector2i:
 	var voc := int(player_row.get("vocation", 0))
 	var hpmax: int = BlackTekVitals.max_hp(game, voc, lvl)
 	var manamax: int = BlackTekVitals.max_mana(game, voc, lvl)
-	var cap: int = 400 + int(BlackTekVitals.vocation_entry(game, voc).per_level.cap) * (lvl - 1)
+	var cap: int = BlackTekVitals.base_cap(game) + int(BlackTekVitals.vocation_entry(game, voc).per_level.cap) * (lvl - 1)
 	game.players[pid] = {
 		"name": String(player_row.name), "vocation": voc, "level": lvl,
 		"exp": int(player_row.get("experience", 0)),
@@ -50,7 +50,7 @@ static func enter_world(game, player_row: Dictionary) -> Vector2i:
 		"mana": clampi(int(player_row.get("mana", manamax)), 0, manamax), "manamax": manamax,
 		"cap": cap,
 		"soul": 100, "town_id": int(player_row.get("town_id", 1)),
-		"skills": player_row.get("skills", {"fist": 10, "club": 10, "sword": 10, "axe": 10, "dist": 10, "shield": 10, "fishing": 10}).duplicate(true),
+		"skills": player_row.get("skills", BlackTekDatabase.DEFAULT_SKILLS).duplicate(true),
 		"maglevel": int(player_row.get("maglevel", 0)),
 		"mlvl_tries": 0, "skill_tries": {},
 		"inv": {}, # slot -> item row

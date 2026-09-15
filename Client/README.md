@@ -101,7 +101,7 @@ sprites.
 | Key | Action |
 |---|---|
 | WASD/Arrows (+ QEZC / numpad) | Walk (diagonals included) |
-| Space | Melee attack nearest rat (2s cooldown) |
+| Space | Target nearest creature (mark lost when it leaves the screen/floor) |
 | F1–F3 | Potions bar slots 1–3 |
 | F4–F6 | Spells bar (heal, flame strike) + attack |
 | F7–F9 | Test spells bar (magic light, cure poison, whirlwind) |
@@ -114,7 +114,7 @@ sprites.
 | Mouse drag on adjacent creature/object | Push it 1 SQM in the drag direction, diagonals included (per-creature cooldown); release a floor item over the open gear panel to take it instead |
 | Mouse drag from yourself | Quick-step 1 SQM in the drag direction |
 | Drag bag/gear item onto a floor tile | Drop it there (melee reach); drag floor loot onto the open gear panel to pick it up (auto-equips when the slot is free) |
-| Left-click a tile | Walk there automatically (shortest-route pathfinding, cyan dots; diagonals pace slower) |
+| Left-click a tile | Walk there automatically (shortest-route pathfinding, cyan dots; diagonals pace slower; reroutes around creatures, "blocked" only when truly stuck) |
 | Left-click an adjacent door | Open/close it (walkability follows the leaf) |
 | Chat | Local: only listeners within 9 SQM hear you; Norf only answers at the temple |
 

@@ -77,6 +77,8 @@ static func push_cd(game) -> float:
 	return game.config.tune("push_cd") if game.get("config") != null else BlackTekGameServer.PUSH_CD
 
 static func try_spawn(game, pid: int) -> void:
+	if not game.players.has(pid):
+		return
 	if game.monsters.size() >= max_monsters(game):
 		return
 	var p: Dictionary = game.players[pid]
@@ -103,6 +105,8 @@ static func try_spawn(game, pid: int) -> void:
 # One AI pass over every monster: acquire targets in range, step toward the
 # player, swing when adjacent.
 static func tick_ai(game, pid: int, now: float) -> void:
+	if not game.players.has(pid):
+		return
 	var p: Dictionary = game.players[pid]
 	var spec := BlackTekMonsters.archetype(game)
 	var aggro := int(spec.get("range", 6))

@@ -10,6 +10,8 @@ static func equip_slot(game, itemtype: int) -> int:
 	return int(BlackTekGameServer.EQUIP_SLOT.get(itemtype, -1))
 
 static func add_item(game, pid: int, itemtype: int, count := 1) -> bool:
+	if not game.players.has(pid):
+		return false
 	var p: Dictionary = game.players[pid]
 	if game.dat != null and bool(game.dat.items.get(itemtype, {}).get("stackable", false)):
 		for bpos in p.bag.keys():
@@ -27,11 +29,15 @@ static func add_item(game, pid: int, itemtype: int, count := 1) -> bool:
 	return false
 
 static func consume_item(game, pid: int, row: Dictionary) -> void:
+	if not game.players.has(pid):
+		return
+	if row.is_empty() or not row.has("count"):
+		return
 	var p: Dictionary = game.players[pid]
 	row.count = int(row.count) - 1
 	if int(row.count) <= 0:
-		if p.inv.get(int(row.slot)) == row:
-			p.inv[int(row.slot)] = null
+		if p.inv.get(int(row.get("slot", -2))) == row:
+			p.inv[int(row.get("slot", -2))] = null
 		for bpos in p.bag.keys():
 			if p.bag[bpos] == row:
 				p.bag[bpos] = null
@@ -39,6 +45,8 @@ static func consume_item(game, pid: int, row: Dictionary) -> void:
 
 # Pays gold coins from the backpack (NPC trades, cf. npcsystem).
 static func pay_gold(game, pid: int, amount: int) -> bool:
+	if not game.players.has(pid):
+		return false
 	var p: Dictionary = game.players[pid]
 	var have := 0
 	for bpos in p.bag.keys():

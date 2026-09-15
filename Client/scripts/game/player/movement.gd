@@ -39,7 +39,7 @@ static func solid_label(game, tile: Vector2i, z: int) -> String:
 static func request_move(game, player_id: int, dir: Vector2i) -> Vector2i:
 	if not game.players.has(player_id):
 		return Vector2i(-1, -1)
-	game.players[player_id].path = [] # manual step cancels click-walking
+	BlackTekPath.clear_path(game, player_id) # manual step cancels click-walking
 	var cur: Vector2i = game.players[player_id]["tile"]
 	if not can_step(game, player_id, dir):
 		return cur
@@ -62,7 +62,7 @@ static func spawn_tile(game) -> Vector2i:
 static func teleport_town(game, pid: int) -> bool:
 	if not game.players.has(pid):
 		return false
-	game.players[pid].path = []
+	BlackTekPath.clear_path(game, pid)
 	if game.use_real_map:
 		game.players[pid].tile = game.find_spawn()
 	else:
@@ -87,7 +87,7 @@ static func try_stair_teleport(game, player_id: int) -> int:
 			break
 	if not has_stair:
 		return -1
-	game.players[player_id].path = []
+	BlackTekPath.clear_path(game, player_id)
 	for dz in [-1, 1]:
 		var nz: int = game.demo_z + dz
 		if nz < 0 or nz > 15:
@@ -110,7 +110,7 @@ static func try_stair_teleport(game, player_id: int) -> int:
 static func request_floor(game, player_id: int, dz: int) -> bool:
 	if not game.players.has(player_id):
 		return false
-	game.players[player_id].path = []
+	BlackTekPath.clear_path(game, player_id)
 	var nz: int = clampi(game.demo_z + dz, 0, 15)
 	if nz == game.demo_z:
 		return false

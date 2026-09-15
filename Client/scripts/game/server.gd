@@ -186,6 +186,8 @@ func player_pos3(pid: int) -> Vector3i:
 	return Vector3i(t.x, t.y, int(p.get("z", demo_z)))
 
 func check_cooldown(pid: int, key: String, secs: float) -> bool:
+	if not players.has(pid):
+		return false
 	var now := Time.get_ticks_msec() / 1000.0
 	var cds: Dictionary = players[pid].cooldowns
 	if float(cds.get(key, 0.0)) > now:
@@ -206,9 +208,13 @@ func set_food(pid: int, seconds: int) -> void:
 	BlackTekPlayer.set_food(self, pid, seconds)
 
 func get_storage(pid: int, key: int) -> int:
+	if not players.has(pid):
+		return -1
 	return db.get_storage(int(players[pid].row_id), key)
 
 func set_storage(pid: int, key: int, value: int) -> void:
+	if not players.has(pid):
+		return
 	db.set_storage(int(players[pid].row_id), key, value)
 
 func add_item(pid: int, itemtype: int, count := 1) -> bool:
@@ -300,6 +306,7 @@ func tick(delta: float) -> void:
 	_tick_day_cycle(delta)
 	BlackTekPath.path_step(self, pid, delta)
 	BlackTekCombat.tick_auto_attack(self, pid, now)
+	BlackTekCombat.validate_target(self, pid)
 	BlackTekRegen.tick(self, pid, delta, now)
 	BlackTekMonsters.tick_ai(self, pid, now)
 	BlackTekActionScripts.tick_pending(self, delta)

@@ -356,7 +356,7 @@ func _build_login() -> void:
 	name_row.add_child(_create_name)
 	_create_voc = OptionButton.new()
 	for v in [4, 1, 3, 2]:
-		_create_voc.add_item(BlackTekGameServer.VOCATIONS[v].name, v)
+		_create_voc.add_item(BlackTekVitals.vocation_name(game, v), v)
 	name_row.add_child(_create_voc)
 	var create := Button.new()
 	create.text = "Create"
@@ -366,8 +366,7 @@ func _build_login() -> void:
 func _fill_char_list() -> void:
 	_char_list.clear()
 	for row in game.character_list():
-		var voc: Dictionary = BlackTekGameServer.VOCATIONS[int(row.vocation)]
-		var idx := _char_list.add_item("%s — %s, level %d" % [String(row.name), voc.name, int(row.level)])
+		var idx := _char_list.add_item("%s — %s, level %d" % [String(row.name), BlackTekVitals.vocation_name(game, int(row.vocation)), int(row.level)])
 		_char_list.set_item_metadata(idx, row)
 	if _char_list.item_count > 0:
 		_char_list.select(0)
@@ -443,8 +442,7 @@ func update_status() -> void:
 	if game.players.is_empty() or _hp_bar == null:
 		return
 	var p: Dictionary = game.players[_pid]
-	var voc: Dictionary = BlackTekGameServer.VOCATIONS[int(p.vocation)]
-	_name_label.text = "%s  ·  level %d %s" % [String(p.name), int(p.level), voc.name]
+	_name_label.text = "%s  ·  level %d %s" % [String(p.name), int(p.level), BlackTekVitals.vocation_name(game, int(p.vocation))]
 	_hp_bar.max_value = int(p.hpmax)
 	_hp_bar.value = int(p.hp)
 	_hp_label.text = "HP %d / %d" % [int(p.hp), int(p.hpmax)]
@@ -1140,8 +1138,7 @@ func refresh_stats() -> void:
 	for c in _stats_box.get_children():
 		c.queue_free()
 	var p: Dictionary = game.players[_pid]
-	var voc: Dictionary = BlackTekGameServer.VOCATIONS[int(p.vocation)]
-	BlackTekUiKit.label(_stats_box, "%s  ·  %s" % [String(p.name), voc.name], 13, ACCENT)
+	BlackTekUiKit.label(_stats_box, "%s  ·  %s" % [String(p.name), BlackTekVitals.vocation_name(game, int(p.vocation))], 13, ACCENT)
 	var gold := 0
 	var weight := 0
 	for slot in p.inv.keys():
@@ -1195,7 +1192,7 @@ func _push_cooldown_row(p: Dictionary) -> void:
 	l.custom_minimum_size = Vector2(88, 0)
 	var bar := BlackTekUiKit.bar(h, ACCENT, 10)
 	bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	bar.max_value = BlackTekGameServer.PUSH_CD
+	bar.max_value = game.push_cd()
 	bar.value = 0.0
 	var st := BlackTekUiKit.label(h, "", 11)
 	st.custom_minimum_size = Vector2(96, 0)
@@ -1210,7 +1207,7 @@ func _push_cooldown_row(p: Dictionary) -> void:
 		st.text = "Too far (%s)" % tname
 		return
 	var rem := game.push_cooldown_remaining(tid)
-	bar.value = clampf(rem, 0.0, BlackTekGameServer.PUSH_CD)
+	bar.value = clampf(rem, 0.0, game.push_cd())
 	st.text = "Ready (%s)" % tname if rem <= 0.01 else "%.1fs (%s)" % [rem, tname]
 
 func _skill_row(name_text: String, level: int, tries: int, need: int) -> void:

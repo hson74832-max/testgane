@@ -125,6 +125,166 @@ func _initialize() -> void:
 		_check("exp gained from kill", int(srv.players[1].exp) > exp_before)
 		_check("loot gold gained", _bag_count(srv, 2148) > 0)
 
+	# ---- target expiry (off-screen / floor change) ----
+	srv.monsters[779001] = {"id": 779001, "name": "Rat", "tile": srv.players[1].tile + Vector2i(1, 0), "z": int(srv.players[1].z), "hp": 25, "hpmax": 25, "move_cd": 0.0, "attack_cd": 99.0, "target_pid": 0}
+	srv.players[1].attack_cd = Time.get_ticks_msec() / 1000.0 + 99.0 # no auto-swing during the check
+	var target_events: Array = []
+	srv.target_changed.connect(func(_p: int, m: Dictionary): target_events.append(m.is_empty()))
+	srv.set_target(1, srv.monsters[779001])
+	srv.tick(0.05)
+	_check("adjacent target kept", int(srv.players[1].target) == 779001)
+	var home_tile: Vector2i = srv.players[1].tile
+	srv.players[1].tile = home_tile + Vector2i(50, 0)
+	srv.tick(0.05)
+	_check("off-screen target cleared", int(srv.players[1].target) == 0)
+	_check("clear emits empty target", not target_events.is_empty() and bool(target_events[target_events.size() - 1]))
+	srv.players[1].tile = home_tile
+	srv.monsters[779001].tile = home_tile + Vector2i(1, 0)
+	srv.set_target(1, srv.monsters[779001])
+	srv.monsters[779001].z = int(srv.players[1].z) + 1
+	srv.tick(0.05)
+	_check("other-floor target cleared", int(srv.players[1].target) == 0)
+	srv.monsters.erase(779001)
+	srv.players[1].attack_cd = 0.0
+
+	# ---- click-walk reroutes around creatures instead of giving up ----
+	srv.players[1].tile = spawn
+	srv.players[1].attack_cd = Time.get_ticks_msec() / 1000.0 + 99.0
+	srv.monsters.clear()
+	var reroute_dest := spawn + Vector2i(2, 2)
+	srv.monsters[779002] = {"id": 779002, "name": "Rat", "tile": spawn + Vector2i(1, 1), "z": int(srv.players[1].z), "hp": 25, "hpmax": 25, "move_cd": 0.0, "attack_cd": 99.0, "target_pid": 0}
+	var blocked_msgs: Array = []
+	srv.msg_local.connect(func(_p: int, t: String): blocked_msgs.append(t))
+	_check("path planned through rat", srv.request_path(1, reroute_dest) == 2)
+	for i in range(120):
+		srv.tick(0.05)
+	_check("walker rerouted around rat", srv.players[1].tile == reroute_dest)
+	_check("reroute is silent", not ("You are blocked." in blocked_msgs))
+	srv.monsters.erase(779002)
+	srv.players[1].attack_cd = 0.0
+
+	# ---- walker gives up when the destination itself is taken ----
+	var step_dest := Vector2i(-9999, -9999)
+	for off in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+		var sc: Vector2i = spawn + off
+		if srv.is_walkable(sc, int(srv.players[1].z)) and srv.monster_at(sc, int(srv.players[1].z)).is_empty():
+			step_dest = sc
+			break
+	_check("step dest found", step_dest != Vector2i(-9999, -9999))
+	srv.players[1].tile = spawn
+	srv.monsters.clear()
+	var giveup_msgs: Array = []
+	srv.msg_local.connect(func(_p: int, t: String): giveup_msgs.append(t))
+	_check("one-step path planned", srv.request_path(1, step_dest) == 1)
+	srv.monsters[779003] = {"id": 779003, "name": "Rat", "tile": step_dest, "z": int(srv.players[1].z), "hp": 25, "hpmax": 25, "move_cd": 0.0, "attack_cd": 99.0, "target_pid": 0}
+	for i in range(10):
+		srv.tick(0.05)
+	_check("taken destination ends walk", srv.get_path(1).is_empty() and srv.players[1].tile == spawn)
+	_check("give-up says blocked", "You are blocked." in giveup_msgs)
+	srv.monsters.erase(779003)
+
+	# ---- occupancy soak: crowded ticks never share a tile (race check) ----
+	# Check-and-move runs synchronously inside one tick (no awaits between the
+	# occupancy read and the write), so a monster can never slip in between.
+	srv.players[1].tile = spawn
+	srv.players[1].hp = int(srv.players[1].hpmax)
+	srv.monsters.clear()
+	var placed := 0
+	for off2 in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 1), Vector2i(-1, -1), Vector2i(1, -1), Vector2i(-1, 1)]:
+		if placed >= 3:
+			break
+		var rt: Vector2i = spawn + off2
+		if srv.is_walkable(rt, int(srv.players[1].z)) and srv.monster_at(rt, int(srv.players[1].z)).is_empty():
+			placed += 1
+			srv.monsters[779010 + placed] = {"id": 779010 + placed, "name": "Rat", "tile": rt, "z": int(srv.players[1].z), "hp": 25, "hpmax": 25, "move_cd": 0.0, "attack_cd": 99.0, "target_pid": 0}
+	_check("3 rats placed", placed == 3)
+	var overlap := false
+	for i in range(500):
+		srv.tick(0.05)
+		var seen := {}
+		var pk := Vector3i(srv.players[1].tile.x, srv.players[1].tile.y, int(srv.players[1].z))
+		seen[pk] = true
+		for m in srv.monsters.values():
+			var k := Vector3i(int(m.tile.x), int(m.tile.y), int(m.z))
+			if seen.has(k):
+				overlap = true
+				break
+			seen[k] = true
+		for n in srv.npcs.values():
+			var k2 := Vector3i(int(n.tile.x), int(n.tile.y), int(n.z))
+			if seen.has(k2):
+				overlap = true
+				break
+			seen[k2] = true
+		if overlap:
+			break
+	_check("500 crowded ticks, no shared tiles", not overlap)
+	srv.monsters.clear()
+
+	# ---- null safety: unknown pid never crashes, safe defaults ----
+	var BAD := 999
+	_check("move bad pid", srv.request_move(BAD, Vector2i(1, 0)) == Vector2i(-1, -1))
+	_check("can_step bad pid", not srv.can_step(BAD, Vector2i(1, 0)))
+	_check("step_blocker bad pid", srv.step_blocker(BAD, Vector2i(1, 0)) == "no session")
+	_check("path bad pid", srv.request_path(BAD, spawn) == -1)
+	srv.cancel_path(BAD)
+	BlackTekPath.path_step(srv, BAD, 0.05)
+	_check("fetch bad pid", srv.get_path(BAD).is_empty())
+	srv.heal_player(BAD, 10, "test")
+	srv.add_mana(BAD, 10, "test")
+	srv.spend_mana(BAD, 10)
+	srv.set_food(BAD, 10)
+	BlackTekPlayer.advance_skill(srv, BAD, "sword")
+	BlackTekPlayer.advance_skill(srv, 1, "bogus")
+	_check("is_fed bad pid", not srv.is_fed(BAD))
+	_check("is_poisoned bad pid", not srv.is_poisoned(BAD))
+	_check("add_item bad pid", not srv.add_item(BAD, 2148, 1))
+	srv.consume_item(BAD, {})
+	srv.consume_item(1, {})
+	_check("pay_gold bad pid", not srv.pay_gold(BAD, 5))
+	_check("count bad pid", srv.shop_stock(BAD, 2148) == 0)
+	var gold_kept := _bag_count(srv, 2148)
+	var meat_offer := {"itemtype": 2666, "buy_price": 8, "price": 8, "sell_price": 3, "name": "meat"}
+	srv.buy_shop_item(BAD, meat_offer)
+	srv.sell_shop_item(BAD, meat_offer, 1)
+	_check("trade bad pid moves no gold", _bag_count(srv, 2148) == gold_kept)
+	_check("queries safe", srv.pushable_item_at(spawn, int(srv.players[1].z)) is Dictionary and srv.takeable_item_at(spawn, int(srv.players[1].z)) is Dictionary and srv.door_at(spawn, int(srv.players[1].z)) is Dictionary)
+	srv.can_push_item(spawn, Vector2i(1, 0), int(srv.players[1].z))
+	_check("push bad pid", not srv.push_item(spawn, Vector2i(1, 0), int(srv.players[1].z), BAD))
+	_check("drop bad pid", not srv.drop_item(BAD, 0, spawn, int(srv.players[1].z)))
+	_check("drop equipped bad pid", not srv.drop_equipped(BAD, 5, spawn, int(srv.players[1].z)))
+	_check("pickup bad pid", not srv.pickup_item(spawn, int(srv.players[1].z), BAD))
+	_check("door bad pid", not srv.use_door(spawn, int(srv.players[1].z), BAD))
+	_check("weapon bad pid", srv.equipped_weapon(BAD) == 0)
+	_check("armor bad pid", srv.total_armor(BAD) == 0)
+	_check("nearest bad pid", srv.nearest_monster(BAD).is_empty())
+	srv.target_next(BAD)
+	srv.attack_current_target(BAD)
+	srv.set_target(BAD, {})
+	srv.damage_monster(999999, 5, "x", BAD)
+	BlackTekCombat.kill_monster(srv, 999999, BAD)
+	BlackTekCombat.gain_exp(srv, BAD)
+	BlackTekCombat.monster_attack(srv, {}, BAD)
+	BlackTekCombat.player_death(srv, BAD)
+	_check("stairs bad pid", srv.try_stair_teleport(BAD) == -1)
+	_check("floor bad pid", not srv.request_floor(BAD, 1))
+	_check("town bad pid", not srv.teleport_town(BAD))
+	_check("npc_at safe", srv.npc_at(spawn, int(srv.players[1].z)) is Dictionary)
+	_check("nearest npc bad pid", srv.nearest_npc(BAD).is_empty())
+	_check("trade bad pid", not srv.can_trade_with_npc(BAD))
+	_check("trade blocker bad pid", srv.trade_blocker(BAD) == "no session")
+	_check("interact bad pid", not srv.interact_npc(BAD, 1))
+	_check("open shop bad pid", not srv.open_shop(BAD))
+	srv.request_say(BAD, "hi")
+	_check("cast bad pid handled", srv.scripts.cast_spell(srv, BAD, "exura"))
+	_check("use bad pid handled", srv.scripts.use_item(srv, BAD, {"itemtype": 7618, "count": 1, "slot": -1}))
+	_check("cooldown bad pid", not srv.check_cooldown(BAD, "x", 1.0))
+	_check("storage bad pid", srv.get_storage(BAD, 1) == -1)
+	srv.set_storage(BAD, 1, 1)
+	BlackTekMonsters.try_spawn(srv, BAD)
+	BlackTekMonsters.tick_ai(srv, BAD, 0.0)
+	_check("dialogue bad pid", not BlackTekNpc.handle_dialogue(srv, BAD, "hi"))
+
 	# ---- food ----
 	if _find_in_bag(srv, 2666).is_empty():
 		srv.add_item(1, 2666, 1)

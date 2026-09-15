@@ -8,7 +8,6 @@ class_name BlackTekWorldView
 extends Node2D
 
 const TILE := 32.0
-const STEP_COOLDOWN := 0.15
 const LOCAL_PLAYER_ID := 1
 # Tibia 10.98 viewport: the area a player can see and directly interact with.
 const VIEW_W := 15
@@ -394,7 +393,7 @@ func _draw_attack_timer(mp: Vector2, is_target: bool) -> void:
 	var p: Dictionary = server.players.get(LOCAL_PLAYER_ID, {})
 	var now := Time.get_ticks_msec() / 1000.0
 	var until: float = float(p.get("attack_cd", 0.0))
-	var speed: float = float(BlackTekGameServer.VOCATIONS[int(p.get("vocation", 4))].attack_speed)
+	var speed: float = BlackTekCombat.attack_speed(server, int(p.get("vocation", 4)))
 	var frac := 1.0 - clampf((until - now) / maxf(speed, 0.01), 0.0, 1.0)
 	var dashes := 14
 	var seg := TAU / dashes

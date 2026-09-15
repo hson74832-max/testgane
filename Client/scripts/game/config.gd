@@ -36,7 +36,7 @@ const FALLBACK_GAMEPLAY := {
 	"day_min_surface": 0.45,
 	"say_range": 9, "trade_range": 3, "max_monsters": 3, "respawn_s": 6.0,
 	"walk_cd": 0.15, "diag_walk_cd": 0.21, "map_w": 30, "map_h": 22,
-	"whirlwind_delay": 0.8,
+	"whirlwind_delay": 0.8, "base_cap": 400, "view_w": 15, "view_h": 11,
 }
 
 const FALLBACK_SHOP := [

@@ -7,9 +7,11 @@ extends RefCounted
 static func vocation_regen(game, vocation: int) -> Dictionary:
 	if game.get("config") != null:
 		return (game.config as BlackTekConfig).vocation(vocation).regen
-	return BlackTekGameServer.VOCATIONS[vocation].regen
+	return BlackTekGameServer.VOCATIONS.get(vocation, BlackTekGameServer.VOCATIONS[0]).regen
 
 static func tick(game, pid: int, delta: float, now: float) -> void:
+	if not game.players.has(pid):
+		return
 	var p: Dictionary = game.players[pid]
 	var fed: bool = float(p.food_until) > now
 	# Poison condition: 2 damage every 2s while active.

@@ -10,6 +10,14 @@ static func vocation_entry(game, voc: int) -> Dictionary:
 		return (game.config as BlackTekConfig).vocation(voc)
 	return BlackTekGameServer.VOCATIONS.get(voc, BlackTekGameServer.VOCATIONS[0])
 
+static func vocation_name(game, voc: int) -> String:
+	return String(vocation_entry(game, voc).get("name", "None"))
+
+static func base_cap(game) -> int:
+	if game.get("config") != null:
+		return (game.config as BlackTekConfig).tune_int("base_cap")
+	return 400
+
 static func max_hp(game, voc: int, level: int) -> int:
 	return 150 + int(vocation_entry(game, voc).per_level.hp) * (level - 1)
 
@@ -27,6 +35,8 @@ static func is_gm(_game, _pid: int) -> bool:
 	return false # demo account is a normal player; GM talkactions show the gate
 
 static func heal_player(game, pid: int, amount: int, source: String) -> void:
+	if not game.players.has(pid):
+		return
 	var p: Dictionary = game.players[pid]
 	var before := int(p.hp)
 	p.hp = mini(int(p.hp) + amount, int(p.hpmax))
@@ -38,6 +48,8 @@ static func heal_player(game, pid: int, amount: int, source: String) -> void:
 	game.stats_changed.emit(pid)
 
 static func add_mana(game, pid: int, amount: int, source: String) -> void:
+	if not game.players.has(pid):
+		return
 	var p: Dictionary = game.players[pid]
 	var before := int(p.mana)
 	p.mana = mini(int(p.mana) + amount, int(p.manamax))
@@ -45,6 +57,8 @@ static func add_mana(game, pid: int, amount: int, source: String) -> void:
 	game.stats_changed.emit(pid)
 
 static func spend_mana(game, pid: int, amount: int) -> void:
+	if not game.players.has(pid):
+		return
 	var p: Dictionary = game.players[pid]
 	p.mana = maxi(0, int(p.mana) - amount)
 	# Magic level advance (demo-scaled; real: mana spent vs vocation magic rate).
@@ -58,11 +72,17 @@ static func spend_mana(game, pid: int, amount: int) -> void:
 	game.stats_changed.emit(pid)
 
 static func set_food(game, pid: int, seconds: int) -> void:
+	if not game.players.has(pid):
+		return
 	game.players[pid].food_until = Time.get_ticks_msec() / 1000 + seconds
 	game.message_local(pid, "Well fed: faster regeneration for %ds." % seconds)
 
 static func advance_skill(game, pid: int, skill: String) -> void:
+	if not game.players.has(pid):
+		return
 	var p: Dictionary = game.players[pid]
+	if not (p.skills as Dictionary).has(skill):
+		return
 	var tries: Dictionary = p.skill_tries
 	tries[skill] = int(tries.get(skill, 0)) + 10
 	# Demo-scaled advance (real: skill_tries vs (skill+1)^3 / vocation rate).
@@ -79,7 +99,11 @@ static func is_pz_tile(game, tile: Vector2i) -> bool:
 	return game.temple_tile != Vector2i(-9999, -9999) and maxi(absi(tile.x - game.temple_tile.x), absi(tile.y - game.temple_tile.y)) <= 3
 
 static func is_fed(game, pid: int) -> bool:
+	if not game.players.has(pid):
+		return false
 	return float(game.players[pid].get("food_until", 0.0)) > Time.get_ticks_msec() / 1000.0
 
 static func is_poisoned(game, pid: int) -> bool:
+	if not game.players.has(pid):
+		return false
 	return float(game.players[pid].get("poison_until", 0.0)) > Time.get_ticks_msec() / 1000.0

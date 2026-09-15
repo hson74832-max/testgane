@@ -6,8 +6,7 @@
 # game/action_scripts.gd, game/loaders/*).
 extends Node2D
 
-const STEP_COOLDOWN := 0.15
-const DIAG_STEP_COOLDOWN := 0.21 # diagonal sidesteps cover sqrt(2)x distance
+# Step cadence mirrors pathfinding (walk_cd/diag_walk_cd in gameplay.toml).
 const LOCAL_PLAYER_ID := 1
 const CFG_PATH := "user://blacktek_demo.cfg"
 const PIXEL_STEPS := [1, 2, 4]
@@ -205,7 +204,7 @@ func _process(delta: float) -> void:
 	if dir != Vector2i.ZERO:
 		server.cancel_path(LOCAL_PLAYER_ID)
 	if dir != Vector2i.ZERO and _cooldown <= 0.0:
-		_cooldown = DIAG_STEP_COOLDOWN if (dir.x != 0 and dir.y != 0) else STEP_COOLDOWN
+		_cooldown = BlackTekPath.diag_walk_cd(server) if (dir.x != 0 and dir.y != 0) else BlackTekPath.walk_cd(server)
 		# Snapshot BEFORE the move: request_move emits player_moved, which
 		# already syncs view.player_tile via signal, so comparing against it
 		# afterwards would always look like "no movement" and skip stairs.

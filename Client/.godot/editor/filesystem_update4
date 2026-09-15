@@ -19,3 +19,5 @@ res://scripts/game/player/movement.gd
 res://verify_demo.gd
 res://scripts/main.gd
 res://scripts/game/action_scripts.gd
+res://scripts/game/database.gd
+res://scripts/game/player/vitals.gd
